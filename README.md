@@ -72,7 +72,7 @@ Mantis offers everything needed to build an advanced dashboard application. In t
 
 - Support React19.
 - Professional user interface.
-- Material UI React components(MUI v7).
+- Material UI React components(MUI v9).
 - Prompt Library for centralized access to prebuilt AI prompts.
 - Fully responsive, all modern browser supported.
 - Easy to use code structure
