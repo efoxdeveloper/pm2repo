@@ -140,7 +140,7 @@ function getApplicationOptions(payload) {
 
 async function createApplication(payload) {
   const options = getApplicationOptions(payload);
-  await call('start', options);
+  await call('start', options.script, options);
   return getApplicationByName(options.name);
 }
 
@@ -239,12 +239,15 @@ function getApplication(id) {
   });
 }
 
-function getApplicationByName(name) {
-  return call('list').then((list) => {
-    const processInfo = list.find((item) => item.name === name);
-    if (!processInfo) throw new Error(`Application ${name} was not found after starting`);
-    return toApplication(processInfo);
-  });
+async function getApplicationByName(name, attempts = 5) {
+  const list = await call('list');
+  const processInfo = list.find((item) => item.name === name || item.pm2_env?.name === name);
+  if (processInfo) return toApplication(processInfo);
+  if (attempts > 0) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return getApplicationByName(name, attempts - 1);
+  }
+  throw new Error(`Application ${name} was not found after starting`);
 }
 
 function tailLog(filePath, application, type) {
