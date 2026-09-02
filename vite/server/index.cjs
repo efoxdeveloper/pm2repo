@@ -94,29 +94,35 @@ function getApplicationOptions(payload) {
   const name = String(payload.name || '').trim();
   const cwd = path.resolve(String(payload.cwd || '').trim());
   let script = String(payload.script || '').trim();
-  let detectedArgs = '';
+  let detectedArgs = [];
+  let packageJson;
   if (!name || !payload.cwd) throw new Error('Application name and working directory are required');
   if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error('Application working directory does not exist');
 
   if (!script) {
     const packagePath = path.join(cwd, 'package.json');
     if (!fs.existsSync(packagePath)) throw new Error('Enter a script or choose a directory containing package.json');
-    let packageJson;
     try {
       packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
     } catch {
       throw new Error(`Unable to read ${packagePath}`);
     }
     if (!packageJson.scripts?.start) throw new Error('No start script found in package.json');
-    if (fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) {
+    const nextCli = path.join(cwd, 'node_modules', 'next', 'dist', 'bin', 'next');
+    const hasNext = packageJson.dependencies?.next || packageJson.devDependencies?.next || packageJson.peerDependencies?.next;
+    if (hasNext && fs.existsSync(nextCli)) {
+      script = nextCli;
+      const startCommand = parseArguments(packageJson.scripts.start);
+      detectedArgs = startCommand[0] && /(^|[\\/])next(?:\.cmd)?$/i.test(startCommand[0]) ? startCommand.slice(1) : ['start'];
+    } else if (fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) {
       script = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
-      detectedArgs = 'start';
+      detectedArgs = ['start'];
     } else if (fs.existsSync(path.join(cwd, 'yarn.lock'))) {
       script = process.platform === 'win32' ? 'yarn.cmd' : 'yarn';
-      detectedArgs = 'start';
+      detectedArgs = ['start'];
     } else {
       script = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-      detectedArgs = 'run start';
+      detectedArgs = ['run', 'start'];
     }
   }
 
@@ -126,6 +132,7 @@ function getApplicationOptions(payload) {
     throw new Error(`Application script does not exist: ${script}`);
   }
 
+  if (!payload.args && !detectedArgs.length && path.basename(script).toLowerCase() === 'next') detectedArgs = ['start'];
   const commandArguments = parseArguments(payload.args || detectedArgs);
   const pm2Script = isCommand && process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : isCommand ? script : scriptPath;
   const pm2Arguments = isCommand && process.platform === 'win32' ? ['/d', '/s', '/c', script, ...commandArguments] : commandArguments;
@@ -150,9 +157,16 @@ function getApplicationOptions(payload) {
 
 async function createApplication(payload) {
   const options = getApplicationOptions(payload);
-  await call('start', options);
-  const port = payload.port || options.env?.PORT;
-  return waitForApplicationReady(options.name, port);
+  const existing = await getApplicationByName(options.name, 0).catch(() => null);
+  if (existing) throw new Error(`Application ${options.name} is already managed by PM2`);
+
+  try {
+    await call('start', options);
+    const port = payload.port || options.env?.PORT;
+    return await waitForApplicationReady(options.name, port);
+  } catch (error) {
+    throw await cleanupFailedApplication(options.name, error);
+  }
 }
 
 function runCommand(command, args, cwd, options = {}) {
@@ -292,6 +306,18 @@ async function waitForApplicationReady(name, port, timeout = 20000) {
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
   throw new Error(`Application ${name} is online in PM2 but is not responding on HTTP port ${portNumber}`);
+}
+
+async function cleanupFailedApplication(name, originalError) {
+  const application = await getApplicationByName(name, 0).catch(() => null);
+  let detail = '';
+  if (application?.errorLog) {
+    const errorEntries = tailLog(application.errorLog, name, 'error');
+    detail = errorEntries.at(-1)?.message?.trim() || '';
+  }
+  if (application) await call('delete', application.id).catch(() => {});
+  if (detail && !originalError.message.includes(detail)) originalError.message = `${originalError.message}: ${detail}`;
+  return originalError;
 }
 
 function tailLog(filePath, application, type) {
