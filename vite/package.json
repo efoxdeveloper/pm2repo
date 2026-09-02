@@ -10,6 +10,7 @@
   "scripts": {
     "start": "vite",
     "server": "node server/index.cjs",
+    "start:production": "node server/index.cjs",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\"",

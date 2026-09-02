@@ -2,6 +2,29 @@
 
 Mantis-based web management interface for PM2. The Vite application lives in [`vite`](./vite) and includes a controlled Node.js API server for managing the local PM2 daemon.
 
+## PM2 Manager ports
+
+The production Node server uses port `5010` by default and serves both the built frontend and the PM2 API from the same port. The application is available at `/free/` and the API remains under `/api/pm2`.
+
+```powershell
+cd vite
+corepack yarn install --immutable
+corepack yarn build
+corepack yarn start:production
+```
+
+For local development, run the API on `5010` and Vite on its separate development port in two terminals:
+
+```powershell
+# Terminal 1
+corepack yarn server
+
+# Terminal 2
+corepack yarn start
+```
+
+Override ports when needed with `PM2_MANAGER_PORT`, `VITE_API_PORT`, and `VITE_DEV_PORT`.
+
 ---
 
 # Mantis Free React Material UI Dashboard Template [![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=Get%20Mantis%20Free%20React%20-%20The%20Most%20Beautiful%20Material-UI%20Designed%20Admin%20Dashboard%20Template%20&url=https://mantisdashboard.com/free&via=codedthemes&hashtags=react,materialui,nextjs,webdev,developers,typescript)

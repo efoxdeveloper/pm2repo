@@ -7,7 +7,26 @@ const { execFile } = require('node:child_process');
 process.env.PM2_HOME = process.env.PM2_HOME || path.join(os.homedir(), '.pm2');
 const pm2 = require('pm2');
 
-const PORT = Number(process.env.PM2_MANAGER_PORT || 4000);
+const PORT = Number(process.env.PM2_MANAGER_PORT || 5010);
+const DIST_DIR = path.resolve(__dirname, '..', 'dist');
+const FRONTEND_BASE_PATH = (process.env.PM2_MANAGER_BASE_PATH || '/free').replace(/\/+$/, '') || '/';
+const MIME_TYPES = {
+  '.css': 'text/css; charset=utf-8',
+  '.gif': 'image/gif',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.jpeg': 'image/jpeg',
+  '.jpg': 'image/jpeg',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.ttf': 'font/ttf',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2'
+};
 const allowedActions = new Set(['start', 'stop', 'restart', 'reload', 'delete']);
 let connectionPromise;
 
@@ -172,9 +191,73 @@ function sendJson(response, status, payload) {
   response.end(JSON.stringify(payload));
 }
 
+function getFrontendFile(pathname) {
+  let relativePath = pathname;
+  if (FRONTEND_BASE_PATH !== '/' && (pathname === FRONTEND_BASE_PATH || pathname.startsWith(`${FRONTEND_BASE_PATH}/`))) {
+    relativePath = pathname.slice(FRONTEND_BASE_PATH.length) || '/';
+  }
+
+  let decodedPath;
+  try {
+    decodedPath = decodeURIComponent(relativePath);
+  } catch {
+    return null;
+  }
+
+  const requestedPath = path.resolve(DIST_DIR, `.${decodedPath}`);
+  const relativeToDist = path.relative(DIST_DIR, requestedPath);
+  if (relativeToDist.startsWith('..') || path.isAbsolute(relativeToDist)) return null;
+
+  try {
+    if (fs.statSync(requestedPath).isFile()) return requestedPath;
+  } catch {
+    // Client-side routes should receive the application shell.
+  }
+
+  const indexPath = path.join(DIST_DIR, 'index.html');
+  return fs.existsSync(indexPath) ? indexPath : null;
+}
+
+function serveFrontend(request, response, pathname) {
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    sendJson(response, 405, { error: 'Method not allowed' });
+    return;
+  }
+
+  if (FRONTEND_BASE_PATH !== '/' && pathname === '/') {
+    response.writeHead(302, { Location: `${FRONTEND_BASE_PATH}/` });
+    response.end();
+    return;
+  }
+
+  const filePath = getFrontendFile(pathname);
+  if (!filePath) {
+    sendJson(response, 404, { error: 'Frontend build not found. Run yarn build first.' });
+    return;
+  }
+
+  const extension = path.extname(filePath).toLowerCase();
+  const headers = {
+    'Cache-Control': path.basename(filePath) === 'index.html' ? 'no-cache' : 'public, max-age=31536000, immutable',
+    'Content-Type': MIME_TYPES[extension] || 'application/octet-stream'
+  };
+  response.writeHead(200, headers);
+  if (request.method === 'HEAD') {
+    response.end();
+    return;
+  }
+  response.end(fs.readFileSync(filePath));
+}
+
 async function handle(request, response) {
   if (request.method === 'OPTIONS') { sendJson(response, 204, {}); return; }
   const url = new URL(request.url, `http://${request.headers.host}`);
+
+  if (!url.pathname.startsWith('/api/')) {
+    serveFrontend(request, response, url.pathname);
+    return;
+  }
+
   try {
     await connectPm2();
     const match = url.pathname.match(/^\/api\/pm2\/applications\/(\d+)(?:\/(logs|git-pull|actions\/([a-z]+)))?$/);
