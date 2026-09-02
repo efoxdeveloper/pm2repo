@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "vite",
+    "server": "node server/index.cjs",
     "build": "vite build",
     "preview": "vite preview",
     "lint": "eslint \"src/**/*.{js,jsx,ts,tsx}\"",
@@ -30,6 +31,7 @@
     "formik": "2.4.9",
     "framer-motion": "12.39.0",
     "lodash-es": "4.18.1",
+    "pm2": "7.0.4",
     "react": "19.2.6",
     "react-device-detect": "2.2.3",
     "react-dom": "19.2.6",

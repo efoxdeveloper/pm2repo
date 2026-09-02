@@ -13,7 +13,10 @@ export default defineConfig(({ mode }) => {
     server: {
       open: true,
       port: PORT,
-      host: true
+      host: true,
+      proxy: {
+        '/api': 'http://127.0.0.1:4000'
+      }
     },
     preview: {
       open: true,

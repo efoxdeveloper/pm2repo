@@ -12,6 +12,7 @@ import MuiBreadcrumbs from '@mui/material/Breadcrumbs';
 // project imports
 import MainCard from 'components/MainCard';
 import navigation from 'menu-items';
+import { applications } from 'data/pm2';
 
 // assets
 import ApartmentOutlined from '@ant-design/icons/ApartmentOutlined';
@@ -56,6 +57,20 @@ export default function Breadcrumbs({
   }
 
   useEffect(() => {
+    if (customLocation === '/applications') {
+      setMain({ type: 'group', title: 'Applications' });
+      setItem({ type: 'item', title: 'Applications', url: '/applications' });
+      return;
+    }
+    const applicationMatch = customLocation.match(/^\/applications\/(\d+)$/);
+    if (applicationMatch) {
+      const application = applications.find((entry) => entry.id === Number(applicationMatch[1]));
+      if (application) {
+        setMain({ type: 'collapse', title: 'Applications', url: '/applications' });
+        setItem({ type: 'item', title: application.displayName, url: customLocation });
+        return;
+      }
+    }
     navigation?.items?.map((menu) => {
       if (menu.type && menu.type === 'group') {
         if (menu?.url && menu.url === customLocation) {
@@ -67,7 +82,7 @@ export default function Breadcrumbs({
       }
       return false;
     });
-  });
+  }, [customLocation]);
 
   // set active item state
   const getCollapse = (menu) => {
@@ -132,7 +147,7 @@ export default function Breadcrumbs({
               <Typography component={Link} to="/" variant="h6" sx={{ color: 'text.secondary', textDecoration: 'none' }}>
                 {icons && <HomeOutlined style={iconSX} />}
                 {icon && !icons && <HomeFilled style={{ ...iconSX, marginRight: 0 }} />}
-                {(!icon || icons) && 'Home'}
+                {(!icon || icons) && 'Dashboard'}
               </Typography>
               {mainContent}
             </MuiBreadcrumbs>
@@ -165,7 +180,7 @@ export default function Breadcrumbs({
         <Typography component={Link} to="/" variant="h6" sx={{ color: 'text.secondary', textDecoration: 'none' }}>
           {icons && <HomeOutlined style={iconSX} />}
           {icon && !icons && <HomeFilled style={{ ...iconSX, marginRight: 0 }} />}
-          {(!icon || icons) && 'Home'}
+          {(!icon || icons) && 'Dashboard'}
         </Typography>
         {mainContent}
         {itemContent}

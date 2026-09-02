@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import { Fragment } from 'react';
 
 // material-ui
 import List from '@mui/material/List';
@@ -19,9 +20,10 @@ export default function NavGroup({ item }) {
     switch (menuItem.type) {
       case 'collapse':
         return (
-          <Typography key={menuItem.id} variant="caption" sx={{ p: 2.5, color: 'error.main' }}>
-            collapse - only available in paid version
-          </Typography>
+          <Fragment key={menuItem.id}>
+            <NavItem item={{ ...menuItem, type: 'item' }} level={1} />
+            {menuItem.children?.map((child) => <NavItem key={child.id} item={child} level={2} />)}
+          </Fragment>
         );
       case 'item':
         return <NavItem key={menuItem.id} item={menuItem} level={1} />;
