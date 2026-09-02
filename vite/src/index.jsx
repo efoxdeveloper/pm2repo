@@ -5,6 +5,7 @@ import 'simplebar-react/dist/simplebar.min.css';
 
 // apex-chart
 import 'assets/third-party/react-table.css';
+import 'react-toastify/dist/ReactToastify.css';
 
 import '@fontsource/public-sans/400.css';
 import '@fontsource/public-sans/500.css';

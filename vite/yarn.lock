@@ -3677,6 +3677,7 @@ __metadata:
     react-number-format: "npm:5.4.5"
     react-router: "npm:7.15.1"
     react-router-dom: "npm:7.15.1"
+    react-toastify: "npm:11.0.5"
     simplebar-react: "npm:3.3.2"
     swr: "npm:2.4.1"
     vite: "npm:8.0.13"
@@ -4303,6 +4304,18 @@ __metadata:
     react-dom:
       optional: true
   checksum: 10c0/3daff5404c7de1429447e735f1ee7e070d4f11632f589cec70c5171f2357be9cada2162f780bc9061eb153646109ad6e80c2d10a6b27256593f28a66945f4c76
+  languageName: node
+  linkType: hard
+
+"react-toastify@npm:11.0.5":
+  version: 11.0.5
+  resolution: "react-toastify@npm:11.0.5"
+  dependencies:
+    clsx: "npm:^2.1.1"
+  peerDependencies:
+    react: ^18 || ^19
+    react-dom: ^18 || ^19
+  checksum: 10c0/50f5b81323ebb1957b2efd0963fac24aa1407155d16ab756ffd6d0f42f8af17e796b3958a9fce13e9d1b945d6c3a5a9ebf13529478474d8a2af4bf1dd0db67d2
   languageName: node
   linkType: hard
 

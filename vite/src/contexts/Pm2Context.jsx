@@ -3,8 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 
 import { activity as initialActivity } from 'data/pm2';
 import { getApplicationLogs, getApplications, getServerInfo, performApplicationAction } from 'api/pm2';
-import Snackbar from '@mui/material/Snackbar';
-import Alert from '@mui/material/Alert';
+import { toast, ToastContainer } from 'react-toastify';
 
 const Pm2Context = createContext(null);
 
@@ -15,10 +14,11 @@ export function Pm2Provider({ children }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activity, setActivity] = useState(initialActivity);
-  const [notification, setNotification] = useState(null);
+  const [pendingActions, setPendingActions] = useState({});
 
   const notify = useCallback((message, severity = 'success') => {
-    setNotification({ message, severity });
+    const toastMethod = toast[severity] || toast;
+    toastMethod(message);
   }, []);
 
   const refreshApplications = useCallback(async () => {
@@ -78,12 +78,19 @@ export function Pm2Provider({ children }) {
       const application = applications.find((item) => item.id === id);
       if (!application) return;
       try {
+        setPendingActions((current) => ({ ...current, [id]: action }));
         await performApplicationAction(id, action);
         await refreshApplications();
         record(application, action === 'restart' ? 'Restart' : action === 'reload' ? 'Reload' : action === 'start' ? 'Start' : 'Stop');
         notify(`${application.displayName} ${action === 'stop' ? 'stopped' : `${action}ed`} successfully.`);
       } catch (requestError) {
         notify(requestError.message, 'error');
+      } finally {
+        setPendingActions((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
       }
     },
     [applications, notify, record, refreshApplications]
@@ -94,28 +101,33 @@ export function Pm2Provider({ children }) {
       const application = applications.find((item) => item.id === id);
       if (!application) return;
       try {
+        setPendingActions((current) => ({ ...current, [id]: 'delete' }));
         await performApplicationAction(id, 'delete');
         await refreshApplications();
         record(application, 'Delete', 'success', 'Application removed from the process list');
         notify(`${application.displayName} removed from PM2.`);
       } catch (requestError) {
         notify(requestError.message, 'error');
+      } finally {
+        setPendingActions((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
       }
     },
     [applications, notify, record, refreshApplications]
   );
 
   const value = useMemo(
-    () => ({ applications, activity, server, logs, loading, error, notification, setNotification, notify, performAction, deleteApplication, refreshApplications, refreshServer, refreshLogs }),
-    [activity, applications, deleteApplication, error, loading, logs, notification, notify, performAction, refreshApplications, refreshLogs, refreshServer, server]
+    () => ({ applications, activity, server, logs, loading, error, pendingActions, notify, performAction, deleteApplication, refreshApplications, refreshServer, refreshLogs }),
+    [activity, applications, deleteApplication, error, loading, logs, pendingActions, notify, performAction, refreshApplications, refreshLogs, refreshServer, server]
   );
 
   return (
     <Pm2Context.Provider value={value}>
       {children}
-      <Snackbar open={Boolean(notification)} autoHideDuration={3500} onClose={() => setNotification(null)} anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}>
-        <Alert severity={notification?.severity || 'success'} onClose={() => setNotification(null)}>{notification?.message}</Alert>
-      </Snackbar>
+      <ToastContainer position="bottom-right" autoClose={3500} newestOnTop closeOnClick pauseOnFocusLoss />
     </Pm2Context.Provider>
   );
 }
