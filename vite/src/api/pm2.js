@@ -11,6 +11,10 @@ export async function getApplications() {
   return request('/applications');
 }
 
+export async function createApplication(application) {
+  return request('/applications', { method: 'POST', body: JSON.stringify(application) });
+}
+
 export async function getApplication(id) {
   return request(`/applications/${id}`);
 }

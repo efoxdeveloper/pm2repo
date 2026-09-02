@@ -2,7 +2,7 @@ import PropTypes from 'prop-types';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { activity as initialActivity } from 'data/pm2';
-import { deployApplication, getApplicationLogs, getApplications, getServerInfo, performApplicationAction } from 'api/pm2';
+import { createApplication as createPm2Application, deployApplication, getApplicationLogs, getApplications, getServerInfo, performApplicationAction } from 'api/pm2';
 import { toast, ToastContainer } from 'react-toastify';
 
 const Pm2Context = createContext(null);
@@ -42,6 +42,16 @@ export function Pm2Provider({ children }) {
       setError(requestError.message);
     }
   }, []);
+
+  const createApplication = useCallback(
+    async (configuration) => {
+      const payload = await createPm2Application(configuration);
+      await refreshApplications();
+      notify(`${payload.application.displayName} started successfully.`);
+      return payload.application;
+    },
+    [notify, refreshApplications]
+  );
 
   const refreshLogs = useCallback(async (items = applications) => {
     if (!items.length) return;
@@ -144,8 +154,8 @@ export function Pm2Provider({ children }) {
   );
 
   const value = useMemo(
-    () => ({ applications, activity, server, logs, loading, error, pendingActions, notify, performAction, deleteApplication, deploy, refreshApplications, refreshServer, refreshLogs }),
-    [activity, applications, deleteApplication, deploy, error, loading, logs, pendingActions, notify, performAction, refreshApplications, refreshLogs, refreshServer, server]
+    () => ({ applications, activity, server, logs, loading, error, pendingActions, notify, createApplication, performAction, deleteApplication, deploy, refreshApplications, refreshServer, refreshLogs }),
+    [activity, applications, createApplication, deleteApplication, deploy, error, loading, logs, pendingActions, notify, performAction, refreshApplications, refreshLogs, refreshServer, server]
   );
 
   return (

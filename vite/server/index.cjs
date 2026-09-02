@@ -8,6 +8,7 @@ process.env.PM2_HOME = process.env.PM2_HOME || path.join(os.homedir(), '.pm2');
 const pm2 = require('pm2');
 
 const PORT = Number(process.env.PM2_MANAGER_PORT || 5010);
+const HOST = process.env.PM2_MANAGER_HOST || '127.0.0.1';
 const DIST_DIR = path.resolve(__dirname, '..', 'dist');
 const FRONTEND_BASE_PATH = (process.env.PM2_MANAGER_BASE_PATH || '/free').replace(/\/+$/, '') || '/';
 const MIME_TYPES = {
@@ -56,6 +57,91 @@ function callRemote(method, payload) {
   return new Promise((resolve, reject) => {
     pm2.Client.executeRemote(method, payload, (error, result) => (error ? reject(error) : resolve(result)));
   });
+}
+
+function readJsonBody(request) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    request.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 1024 * 1024) {
+        reject(new Error('Request body is too large'));
+        request.destroy();
+      }
+    });
+    request.on('end', () => {
+      if (!body) {
+        resolve({});
+        return;
+      }
+      try {
+        resolve(JSON.parse(body));
+      } catch {
+        reject(new Error('Request body must be valid JSON'));
+      }
+    });
+    request.on('error', reject);
+  });
+}
+
+function getApplicationOptions(payload) {
+  const name = String(payload.name || '').trim();
+  const cwd = path.resolve(String(payload.cwd || '').trim());
+  let script = String(payload.script || '').trim();
+  let detectedArgs = '';
+  if (!name || !payload.cwd) throw new Error('Application name and working directory are required');
+  if (!fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error('Application working directory does not exist');
+
+  if (!script) {
+    const packagePath = path.join(cwd, 'package.json');
+    if (!fs.existsSync(packagePath)) throw new Error('Enter a script or choose a directory containing package.json');
+    let packageJson;
+    try {
+      packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+    } catch {
+      throw new Error(`Unable to read ${packagePath}`);
+    }
+    if (!packageJson.scripts?.start) throw new Error('No start script found in package.json');
+    if (fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) {
+      script = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+      detectedArgs = 'start';
+    } else if (fs.existsSync(path.join(cwd, 'yarn.lock'))) {
+      script = process.platform === 'win32' ? 'yarn.cmd' : 'yarn';
+      detectedArgs = 'start';
+    } else {
+      script = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+      detectedArgs = 'run start';
+    }
+  }
+
+  const scriptPath = path.resolve(cwd, script);
+  const isCommand = ['npm', 'npm.cmd', 'yarn', 'yarn.cmd', 'pnpm', 'pnpm.cmd'].includes(script.toLowerCase());
+  if (!isCommand && (!fs.existsSync(scriptPath) || !fs.statSync(scriptPath).isFile())) {
+    throw new Error(`Application script does not exist: ${script}`);
+  }
+
+  const options = {
+    name,
+    script: isCommand ? script : scriptPath,
+    cwd,
+    interpreter: isCommand ? 'none' : payload.interpreter && payload.interpreter !== 'none' ? payload.interpreter : 'none',
+    exec_mode: payload.mode === 'cluster' ? 'cluster' : 'fork',
+    instances: Math.max(1, Number(payload.instances) || 1),
+    autorestart: payload.autorestart !== false,
+    watch: payload.watch === true
+  };
+  if (payload.args || detectedArgs) options.args = String(payload.args || detectedArgs);
+  if (payload.nodeArgs) options.node_args = String(payload.nodeArgs);
+  if (payload.maxMemoryRestart) options.max_memory_restart = String(payload.maxMemoryRestart);
+  if (payload.restartDelay) options.restart_delay = Math.max(0, Number(payload.restartDelay) || 0);
+  if (payload.env && typeof payload.env === 'object' && !Array.isArray(payload.env)) options.env = { ...payload.env };
+  return options;
+}
+
+async function createApplication(payload) {
+  const options = getApplicationOptions(payload);
+  await call('start', options);
+  return getApplicationByName(options.name);
 }
 
 function runCommand(command, args, cwd, options = {}) {
@@ -149,6 +235,14 @@ function getApplication(id) {
   return call('describe', id).then((list) => {
     const processInfo = Array.isArray(list) ? list[0] : list;
     if (!processInfo) throw new Error(`Application ${id} was not found`);
+    return toApplication(processInfo);
+  });
+}
+
+function getApplicationByName(name) {
+  return call('list').then((list) => {
+    const processInfo = list.find((item) => item.name === name);
+    if (!processInfo) throw new Error(`Application ${name} was not found after starting`);
     return toApplication(processInfo);
   });
 }
@@ -304,6 +398,11 @@ async function handle(request, response) {
 
   try {
     await connectPm2();
+    if (request.method === 'POST' && url.pathname === '/api/pm2/applications') {
+      const payload = await readJsonBody(request);
+      sendJson(response, 201, { application: await createApplication(payload) });
+      return;
+    }
     const match = url.pathname.match(/^\/api\/pm2\/applications\/(\d+)(?:\/(logs|deploy|actions\/([a-z]+)))?$/);
     if (request.method === 'GET' && url.pathname === '/api/pm2/health') { sendJson(response, 200, { ok: true, pm2Home: process.env.PM2_HOME }); return; }
     if (request.method === 'GET' && url.pathname === '/api/pm2/applications') { sendJson(response, 200, { applications: await getApplications() }); return; }
@@ -320,7 +419,7 @@ async function handle(request, response) {
 }
 
 const server = http.createServer(handle);
-server.listen(PORT, '127.0.0.1', () => console.log(`PM2 Manager API listening on http://127.0.0.1:${PORT} (PM2_HOME=${process.env.PM2_HOME})`));
+server.listen(PORT, HOST, () => console.log(`PM2 Manager API listening on http://${HOST}:${PORT} (PM2_HOME=${process.env.PM2_HOME})`));
 
 function shutdown() {
   if (connectionPromise) pm2.disconnect(() => process.exit(0));
