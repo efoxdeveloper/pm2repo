@@ -150,8 +150,9 @@ function getApplicationOptions(payload) {
 
 async function createApplication(payload) {
   const options = getApplicationOptions(payload);
-  await call('start', options.script, options);
-  return getApplicationByName(options.name);
+  await call('start', options);
+  const port = payload.port || options.env?.PORT;
+  return waitForApplicationReady(options.name, port);
 }
 
 function runCommand(command, args, cwd, options = {}) {
@@ -258,6 +259,39 @@ async function getApplicationByName(name, attempts = 5) {
     return getApplicationByName(name, attempts - 1);
   }
   throw new Error(`Application ${name} was not found after starting`);
+}
+
+function probeHttp(port) {
+  return new Promise((resolve) => {
+    const request = http.get({ hostname: '127.0.0.1', port, path: '/', timeout: 1000 }, (response) => {
+      response.resume();
+      resolve(true);
+    });
+    request.on('error', () => resolve(false));
+    request.on('timeout', () => request.destroy());
+  });
+}
+
+async function waitForApplicationReady(name, port, timeout = 20000) {
+  const portNumber = Number(port);
+  if (!port) return getApplicationByName(name);
+  if (!Number.isInteger(portNumber) || portNumber < 1 || portNumber > 65535) throw new Error(`Invalid application port: ${port}`);
+
+  const deadline = Date.now() + timeout;
+  let application;
+  while (Date.now() < deadline) {
+    try {
+      application = await getApplicationByName(name);
+      if (application.status === 'errored' || application.status === 'stopped') {
+        throw new Error(`Application ${name} entered ${application.status} state`);
+      }
+      if (application.status === 'online' && await probeHttp(portNumber)) return application;
+    } catch (error) {
+      if (error.message.includes('entered')) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  throw new Error(`Application ${name} is online in PM2 but is not responding on HTTP port ${portNumber}`);
 }
 
 function tailLog(filePath, application, type) {
