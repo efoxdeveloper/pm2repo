@@ -9,6 +9,13 @@ import FormControlLabel from '@mui/material/FormControlLabel';
 import Button from '@mui/material/Button';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
+import Table from '@mui/material/Table';
+import TableBody from '@mui/material/TableBody';
+import TableCell from '@mui/material/TableCell';
+import TableContainer from '@mui/material/TableContainer';
+import TableHead from '@mui/material/TableHead';
+import TableRow from '@mui/material/TableRow';
+import Chip from '@mui/material/Chip';
 import DownloadOutlined from '@ant-design/icons/DownloadOutlined';
 import DeleteOutlined from '@ant-design/icons/DeleteOutlined';
 import PauseOutlined from '@ant-design/icons/PauseOutlined';
@@ -21,7 +28,7 @@ export default function LogsViewer({ entries, terminal = false }) {
   const [autoScroll, setAutoScroll] = useState(true);
   const [paused, setPaused] = useState(false);
   const [cleared, setCleared] = useState(false);
-  const filtered = useMemo(() => entries.filter((entry) => (type === 'all' || entry.type === type) && `${entry.message} ${entry.application}`.toLowerCase().includes(query.toLowerCase())), [entries, query, type]);
+  const filtered = useMemo(() => entries.filter((entry) => (type === 'all' || entry.type === type) && `${entry.message} ${entry.application}`.toLowerCase().includes(query.toLowerCase())).map((entry, index) => ({ ...entry, sortKey: entry.sortKey ?? index })).sort((left, right) => right.sortKey - left.sortKey), [entries, query, type]);
 
   return (
     <>
@@ -39,13 +46,12 @@ export default function LogsViewer({ entries, terminal = false }) {
           <Button size="small" startIcon={<DownloadOutlined />} onClick={() => notify('Log download prepared.')}>Download</Button>
         </Stack>
       </Stack>
-      <Box sx={{ mx: 2, mb: 2, p: 2, minHeight: 220, maxHeight: 360, overflow: 'auto', bgcolor: 'grey.50', border: 1, borderColor: 'divider' }}>
-        {cleared || !filtered.length ? <Typography variant="body2" color="text.secondary">No logs available.</Typography> : filtered.map((entry, index) => (
-          <Typography key={`${entry.timestamp}-${index}`} component="div" variant="body2" sx={{ fontFamily: 'monospace', lineHeight: 1.9, color: entry.type === 'error' ? 'error.main' : 'text.primary' }}>
-            {terminal ? `${entry.timestamp} ${entry.type.toUpperCase()} ${entry.message}` : `${entry.timestamp}  ${entry.application}  ${entry.type.toUpperCase()}  ${entry.message}`}
-          </Typography>
-        ))}
-      </Box>
+      <TableContainer sx={{ mx: 2, mb: 2, width: 'calc(100% - 32px)', maxHeight: 360, overflow: 'auto', border: 1, borderColor: 'divider' }}>
+        {cleared || !filtered.length ? <Box sx={{ p: 2, minHeight: 160 }}><Typography variant="body2" color="text.secondary">No logs available.</Typography></Box> : <Table size="small" stickyHeader aria-label="Application logs">
+          <TableHead><TableRow><TableCell sx={{ width: 110 }}>Timestamp</TableCell>{!terminal && <TableCell sx={{ width: 150 }}>Application</TableCell>}<TableCell sx={{ width: 90 }}>Type</TableCell><TableCell>Message</TableCell></TableRow></TableHead>
+          <TableBody>{filtered.map((entry, index) => <TableRow hover key={`${entry.timestamp}-${entry.application}-${index}`}><TableCell sx={{ fontFamily: 'monospace', verticalAlign: 'top' }}>{entry.timestamp}</TableCell>{!terminal && <TableCell sx={{ verticalAlign: 'top' }}>{entry.application}</TableCell>}<TableCell sx={{ verticalAlign: 'top' }}><Chip size="small" variant="combined" color={entry.type === 'error' ? 'error' : entry.type === 'warn' ? 'warning' : 'info'} label={entry.type.toUpperCase()} /></TableCell><TableCell sx={{ fontFamily: 'monospace', whiteSpace: 'normal', wordBreak: 'break-word', color: entry.type === 'error' ? 'error.main' : 'text.primary' }}>{entry.message}</TableCell></TableRow>)}</TableBody>
+        </Table>}
+      </TableContainer>
     </>
   );
 }

@@ -102,6 +102,7 @@ function tailLog(filePath, application, type) {
     const lines = fs.readFileSync(filePath, 'utf8').split(/\r?\n/).filter(Boolean).slice(-500);
     return lines.map((message, index) => ({
       timestamp: new Date().toLocaleTimeString('en-GB'),
+      sortKey: Date.now() - (lines.length - index),
       application,
       type,
       message,
@@ -114,7 +115,7 @@ function tailLog(filePath, application, type) {
 
 async function getLogs(id) {
   const application = await getApplication(id);
-  return [...tailLog(application.outputLog, application.name, 'info'), ...tailLog(application.errorLog, application.name, 'error')];
+  return [...tailLog(application.outputLog, application.name, 'info'), ...tailLog(application.errorLog, application.name, 'error')].sort((left, right) => right.sortKey - left.sortKey);
 }
 
 async function runAction(id, action) {
