@@ -84,6 +84,12 @@ function readJsonBody(request) {
   });
 }
 
+function parseArguments(value) {
+  if (Array.isArray(value)) return value.map(String);
+  const matches = String(value || '').match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) || [];
+  return matches.map((argument) => argument.replace(/^['"]|['"]$/g, ''));
+}
+
 function getApplicationOptions(payload) {
   const name = String(payload.name || '').trim();
   const cwd = path.resolve(String(payload.cwd || '').trim());
@@ -120,9 +126,13 @@ function getApplicationOptions(payload) {
     throw new Error(`Application script does not exist: ${script}`);
   }
 
+  const commandArguments = parseArguments(payload.args || detectedArgs);
+  const pm2Script = isCommand && process.platform === 'win32' ? process.env.ComSpec || 'cmd.exe' : isCommand ? script : scriptPath;
+  const pm2Arguments = isCommand && process.platform === 'win32' ? ['/d', '/s', '/c', script, ...commandArguments] : commandArguments;
+
   const options = {
     name,
-    script: isCommand ? script : scriptPath,
+    script: pm2Script,
     cwd,
     interpreter: isCommand ? 'none' : payload.interpreter && payload.interpreter !== 'none' ? payload.interpreter : 'none',
     exec_mode: payload.mode === 'cluster' ? 'cluster' : 'fork',
@@ -130,8 +140,8 @@ function getApplicationOptions(payload) {
     autorestart: payload.autorestart !== false,
     watch: payload.watch === true
   };
-  if (payload.args || detectedArgs) options.args = String(payload.args || detectedArgs);
-  if (payload.nodeArgs) options.node_args = String(payload.nodeArgs);
+  if (pm2Arguments.length) options.args = pm2Arguments;
+  if (payload.nodeArgs) options.node_args = parseArguments(payload.nodeArgs);
   if (payload.maxMemoryRestart) options.max_memory_restart = String(payload.maxMemoryRestart);
   if (payload.restartDelay) options.restart_delay = Math.max(0, Number(payload.restartDelay) || 0);
   if (payload.env && typeof payload.env === 'object' && !Array.isArray(payload.env)) options.env = { ...payload.env };
