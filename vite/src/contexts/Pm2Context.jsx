@@ -2,7 +2,7 @@ import PropTypes from 'prop-types';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { activity as initialActivity } from 'data/pm2';
-import { getApplicationLogs, getApplications, getServerInfo, gitPullApplication, performApplicationAction } from 'api/pm2';
+import { deployApplication, getApplicationLogs, getApplications, getServerInfo, performApplicationAction } from 'api/pm2';
 import { toast, ToastContainer } from 'react-toastify';
 
 const Pm2Context = createContext(null);
@@ -119,17 +119,18 @@ export function Pm2Provider({ children }) {
     [applications, notify, record, refreshApplications]
   );
 
-  const gitPull = useCallback(
+  const deploy = useCallback(
     async (id) => {
       const application = applications.find((item) => item.id === id);
       if (!application) return;
       try {
-        setPendingActions((current) => ({ ...current, [id]: 'git-pull' }));
-        const result = await gitPullApplication(id);
+        setPendingActions((current) => ({ ...current, [id]: 'deploy' }));
+        const result = await deployApplication(id);
         await refreshApplications();
-        record(application, 'Git Pull', 'success', result.output || 'Git pull completed successfully');
-        notify(`${application.displayName}: ${result.output || 'Git pull completed successfully'}`);
+        record(application, 'Deploy', 'success', result.output || 'Deployment completed successfully');
+        notify(`${application.displayName} deployed successfully.`);
       } catch (requestError) {
+        record(application, 'Deploy', 'failed', requestError.message);
         notify(requestError.message, 'error');
       } finally {
         setPendingActions((current) => {
@@ -143,8 +144,8 @@ export function Pm2Provider({ children }) {
   );
 
   const value = useMemo(
-    () => ({ applications, activity, server, logs, loading, error, pendingActions, notify, performAction, deleteApplication, gitPull, refreshApplications, refreshServer, refreshLogs }),
-    [activity, applications, deleteApplication, error, gitPull, loading, logs, pendingActions, notify, performAction, refreshApplications, refreshLogs, refreshServer, server]
+    () => ({ applications, activity, server, logs, loading, error, pendingActions, notify, performAction, deleteApplication, deploy, refreshApplications, refreshServer, refreshLogs }),
+    [activity, applications, deleteApplication, deploy, error, loading, logs, pendingActions, notify, performAction, refreshApplications, refreshLogs, refreshServer, server]
   );
 
   return (

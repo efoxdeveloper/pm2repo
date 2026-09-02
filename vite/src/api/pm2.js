@@ -27,6 +27,6 @@ export async function performApplicationAction(id, action) {
   return request(`/applications/${id}/actions/${action}`, { method: 'POST' });
 }
 
-export async function gitPullApplication(id) {
-  return request(`/applications/${id}/git-pull`, { method: 'POST' });
+export async function deployApplication(id) {
+  return request(`/applications/${id}/deploy`, { method: 'POST' });
 }

@@ -58,16 +58,54 @@ function callRemote(method, payload) {
   });
 }
 
-function runGitPull(cwd) {
+function runCommand(command, args, cwd, options = {}) {
   return new Promise((resolve, reject) => {
-    execFile('git', ['-C', cwd, 'pull', '--ff-only'], { windowsHide: true, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (error, stdout, stderr) => {
+    execFile(command, args, { cwd, windowsHide: true, maxBuffer: 10 * 1024 * 1024, timeout: 15 * 60 * 1000, ...options }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error((stderr || stdout || error.message).trim()));
         return;
       }
-      resolve((stdout || stderr || 'Already up to date.').trim());
+      resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
     });
   });
+}
+
+function runGitPull(cwd) {
+  return runCommand('git', ['-C', cwd, 'pull', '--ff-only'], cwd, { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }).then(({ stdout, stderr }) => stdout || stderr || 'Already up to date.');
+}
+
+async function getGitRoot(cwd) {
+  if (!cwd || !fs.existsSync(cwd)) throw new Error('Application working directory does not exist');
+  try {
+    const result = await runCommand('git', ['-C', cwd, 'rev-parse', '--show-toplevel'], cwd, { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+    return result.stdout.trim();
+  } catch {
+    throw new Error(`${cwd} is not inside a Git working directory`);
+  }
+}
+
+function getBuildCommand(cwd) {
+  const packagePath = path.join(cwd, 'package.json');
+  if (!fs.existsSync(packagePath)) throw new Error(`${cwd} does not contain a package.json file`);
+
+  let packageJson;
+  try {
+    packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+  } catch {
+    throw new Error(`Unable to read ${packagePath}`);
+  }
+  if (!packageJson.scripts?.build) throw new Error(`${packageJson.name || 'Application'} does not define a build script`);
+
+  const corepack = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+  if (fs.existsSync(path.join(cwd, 'pnpm-lock.yaml'))) return { command: corepack, args: ['pnpm', 'run', 'build'], label: 'pnpm run build' };
+  if (fs.existsSync(path.join(cwd, 'yarn.lock'))) return { command: corepack, args: ['yarn', 'build'], label: 'yarn build' };
+  return { command: process.platform === 'win32' ? 'npm.cmd' : 'npm', args: ['run', 'build'], label: 'npm run build' };
+}
+
+async function runBuild(cwd) {
+  const build = getBuildCommand(cwd);
+  const result = await runCommand(build.command, build.args, cwd, { env: { ...process.env, CI: 'false' } });
+  return { ...build, output: result.stdout || result.stderr || 'Build completed successfully.' };
 }
 
 function normalizeStatus(status) {
@@ -144,13 +182,19 @@ async function runAction(id, action) {
   return getApplication(id).catch(() => null);
 }
 
-async function gitPullApplication(id) {
+async function deployApplication(id) {
   const application = await getApplication(id);
-  if (!application.cwd || !fs.existsSync(path.join(application.cwd, '.git'))) {
-    throw new Error(`${application.name} is not configured with a Git working directory`);
-  }
-  const output = await runGitPull(application.cwd);
-  return { application: await getApplication(id), output };
+  const gitRoot = await getGitRoot(application.cwd);
+  const pullOutput = await runGitPull(gitRoot);
+  const build = await runBuild(application.cwd);
+  await call('reload', id);
+  return {
+    application: await getApplication(id).catch(() => null),
+    buildCommand: build.label,
+    buildOutput: build.output,
+    pullOutput,
+    output: `Pulled latest changes, ran ${build.label}, and reloaded PM2.`
+  };
 }
 
 function getStorage() {
@@ -260,13 +304,13 @@ async function handle(request, response) {
 
   try {
     await connectPm2();
-    const match = url.pathname.match(/^\/api\/pm2\/applications\/(\d+)(?:\/(logs|git-pull|actions\/([a-z]+)))?$/);
+    const match = url.pathname.match(/^\/api\/pm2\/applications\/(\d+)(?:\/(logs|deploy|actions\/([a-z]+)))?$/);
     if (request.method === 'GET' && url.pathname === '/api/pm2/health') { sendJson(response, 200, { ok: true, pm2Home: process.env.PM2_HOME }); return; }
     if (request.method === 'GET' && url.pathname === '/api/pm2/applications') { sendJson(response, 200, { applications: await getApplications() }); return; }
     if (request.method === 'GET' && url.pathname === '/api/pm2/server') { sendJson(response, 200, { server: await getServer() }); return; }
     if (match && request.method === 'GET' && match[2] === 'logs') { sendJson(response, 200, { logs: await getLogs(Number(match[1])) }); return; }
     if (match && request.method === 'GET' && !match[2]) { sendJson(response, 200, { application: await getApplication(Number(match[1])) }); return; }
-    if (match && request.method === 'POST' && match[2] === 'git-pull') { sendJson(response, 200, await gitPullApplication(Number(match[1]))); return; }
+    if (match && request.method === 'POST' && match[2] === 'deploy') { sendJson(response, 200, await deployApplication(Number(match[1]))); return; }
     if (match && request.method === 'POST' && match[3]) { sendJson(response, 200, { application: await runAction(Number(match[1]), match[3]) }); return; }
     sendJson(response, 404, { error: 'Route not found' });
   } catch (error) {

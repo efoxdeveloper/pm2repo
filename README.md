@@ -25,6 +25,8 @@ corepack yarn start
 
 Override ports when needed with `PM2_MANAGER_PORT`, `VITE_API_PORT`, and `VITE_DEV_PORT`.
 
+The application action is `Deploy`. It runs a controlled `git pull --ff-only`, executes the repository's `build` script using its detected package manager, and reloads the selected PM2 process. If the pull or build fails, PM2 is not reloaded.
+
 ---
 
 # Mantis Free React Material UI Dashboard Template [![Tweet](https://img.shields.io/twitter/url/http/shields.io.svg?style=social)](https://twitter.com/intent/tweet?text=Get%20Mantis%20Free%20React%20-%20The%20Most%20Beautiful%20Material-UI%20Designed%20Admin%20Dashboard%20Template%20&url=https://mantisdashboard.com/free&via=codedthemes&hashtags=react,materialui,nextjs,webdev,developers,typescript)
