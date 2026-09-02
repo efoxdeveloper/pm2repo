@@ -2,7 +2,7 @@ import PropTypes from 'prop-types';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { activity as initialActivity } from 'data/pm2';
-import { getApplicationLogs, getApplications, getServerInfo, performApplicationAction } from 'api/pm2';
+import { getApplicationLogs, getApplications, getServerInfo, gitPullApplication, performApplicationAction } from 'api/pm2';
 import { toast, ToastContainer } from 'react-toastify';
 
 const Pm2Context = createContext(null);
@@ -119,9 +119,32 @@ export function Pm2Provider({ children }) {
     [applications, notify, record, refreshApplications]
   );
 
+  const gitPull = useCallback(
+    async (id) => {
+      const application = applications.find((item) => item.id === id);
+      if (!application) return;
+      try {
+        setPendingActions((current) => ({ ...current, [id]: 'git-pull' }));
+        const result = await gitPullApplication(id);
+        await refreshApplications();
+        record(application, 'Git Pull', 'success', result.output || 'Git pull completed successfully');
+        notify(`${application.displayName}: ${result.output || 'Git pull completed successfully'}`);
+      } catch (requestError) {
+        notify(requestError.message, 'error');
+      } finally {
+        setPendingActions((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+      }
+    },
+    [applications, notify, record, refreshApplications]
+  );
+
   const value = useMemo(
-    () => ({ applications, activity, server, logs, loading, error, pendingActions, notify, performAction, deleteApplication, refreshApplications, refreshServer, refreshLogs }),
-    [activity, applications, deleteApplication, error, loading, logs, pendingActions, notify, performAction, refreshApplications, refreshLogs, refreshServer, server]
+    () => ({ applications, activity, server, logs, loading, error, pendingActions, notify, performAction, deleteApplication, gitPull, refreshApplications, refreshServer, refreshLogs }),
+    [activity, applications, deleteApplication, error, gitPull, loading, logs, pendingActions, notify, performAction, refreshApplications, refreshLogs, refreshServer, server]
   );
 
   return (

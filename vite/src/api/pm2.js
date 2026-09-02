@@ -26,3 +26,7 @@ export async function getServerInfo() {
 export async function performApplicationAction(id, action) {
   return request(`/applications/${id}/actions/${action}`, { method: 'POST' });
 }
+
+export async function gitPullApplication(id) {
+  return request(`/applications/${id}/git-pull`, { method: 'POST' });
+}

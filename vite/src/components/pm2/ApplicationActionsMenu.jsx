@@ -14,11 +14,11 @@ import EllipsisOutlined from '@ant-design/icons/EllipsisOutlined';
 import CircularProgress from '@mui/material/CircularProgress';
 import { usePm2 } from 'contexts/Pm2Context';
 
-const destructive = { stop: 'Stop Application', restart: 'Restart', delete: 'Delete' };
+const destructive = { stop: 'Stop Application', restart: 'Restart', 'git-pull': 'Git Pull', delete: 'Delete' };
 
 export default function ApplicationActionsMenu({ application }) {
   const navigate = useNavigate();
-  const { performAction, deleteApplication, pendingActions } = usePm2();
+  const { performAction, deleteApplication, gitPull, pendingActions } = usePm2();
   const [anchorEl, setAnchorEl] = useState(null);
   const [confirmAction, setConfirmAction] = useState(null);
   const closeMenu = () => setAnchorEl(null);
@@ -27,11 +27,12 @@ export default function ApplicationActionsMenu({ application }) {
     if (destructive[action]) setConfirmAction(action);
     else performAction(application.id, action);
   };
-  const confirm = () => {
+  const confirm = async () => {
     if (confirmAction === 'delete') {
       deleteApplication(application.id);
       navigate('/applications');
-    } else performAction(application.id, confirmAction);
+    } else if (confirmAction === 'git-pull') await gitPull(application.id);
+    else await performAction(application.id, confirmAction);
     setConfirmAction(null);
   };
   const actionLabel = confirmAction === 'delete' ? 'Delete' : confirmAction === 'stop' ? 'Stop Application' : 'Restart';
@@ -51,6 +52,7 @@ export default function ApplicationActionsMenu({ application }) {
         <MenuItem disabled={isPending} onClick={() => run('restart')}>Restart</MenuItem>
         <MenuItem disabled={isPending} onClick={() => run('reload')}>Reload</MenuItem>
         {application.status === 'stopped' ? <MenuItem disabled={isPending} onClick={() => run('start')}>Start</MenuItem> : <MenuItem disabled={isPending} onClick={() => run('stop')}>Stop</MenuItem>}
+        <MenuItem disabled={isPending} onClick={() => run('git-pull')}>Pull Latest Changes</MenuItem>
         <MenuItem disabled={isPending} onClick={() => run('delete')}>Delete</MenuItem>
       </Menu>
       <Dialog open={Boolean(confirmAction)} onClose={() => setConfirmAction(null)} aria-labelledby="confirm-action-title">

@@ -2,6 +2,7 @@ const http = require('node:http');
 const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFile } = require('node:child_process');
 
 process.env.PM2_HOME = process.env.PM2_HOME || path.join(os.homedir(), '.pm2');
 const pm2 = require('pm2');
@@ -35,6 +36,18 @@ function call(method, ...args) {
 function callRemote(method, payload) {
   return new Promise((resolve, reject) => {
     pm2.Client.executeRemote(method, payload, (error, result) => (error ? reject(error) : resolve(result)));
+  });
+}
+
+function runGitPull(cwd) {
+  return new Promise((resolve, reject) => {
+    execFile('git', ['-C', cwd, 'pull', '--ff-only'], { windowsHide: true, maxBuffer: 1024 * 1024, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error((stderr || stdout || error.message).trim()));
+        return;
+      }
+      resolve((stdout || stderr || 'Already up to date.').trim());
+    });
   });
 }
 
@@ -111,6 +124,15 @@ async function runAction(id, action) {
   return getApplication(id).catch(() => null);
 }
 
+async function gitPullApplication(id) {
+  const application = await getApplication(id);
+  if (!application.cwd || !fs.existsSync(path.join(application.cwd, '.git'))) {
+    throw new Error(`${application.name} is not configured with a Git working directory`);
+  }
+  const output = await runGitPull(application.cwd);
+  return { application: await getApplication(id), output };
+}
+
 function getStorage() {
   try {
     const root = path.parse(process.cwd()).root;
@@ -154,12 +176,13 @@ async function handle(request, response) {
   const url = new URL(request.url, `http://${request.headers.host}`);
   try {
     await connectPm2();
-    const match = url.pathname.match(/^\/api\/pm2\/applications\/(\d+)(?:\/(logs|actions\/([a-z]+)))?$/);
+    const match = url.pathname.match(/^\/api\/pm2\/applications\/(\d+)(?:\/(logs|git-pull|actions\/([a-z]+)))?$/);
     if (request.method === 'GET' && url.pathname === '/api/pm2/health') { sendJson(response, 200, { ok: true, pm2Home: process.env.PM2_HOME }); return; }
     if (request.method === 'GET' && url.pathname === '/api/pm2/applications') { sendJson(response, 200, { applications: await getApplications() }); return; }
     if (request.method === 'GET' && url.pathname === '/api/pm2/server') { sendJson(response, 200, { server: await getServer() }); return; }
     if (match && request.method === 'GET' && match[2] === 'logs') { sendJson(response, 200, { logs: await getLogs(Number(match[1])) }); return; }
     if (match && request.method === 'GET' && !match[2]) { sendJson(response, 200, { application: await getApplication(Number(match[1])) }); return; }
+    if (match && request.method === 'POST' && match[2] === 'git-pull') { sendJson(response, 200, await gitPullApplication(Number(match[1]))); return; }
     if (match && request.method === 'POST' && match[3]) { sendJson(response, 200, { application: await runAction(Number(match[1]), match[3]) }); return; }
     sendJson(response, 404, { error: 'Route not found' });
   } catch (error) {
