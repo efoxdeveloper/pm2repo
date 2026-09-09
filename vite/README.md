@@ -188,3 +188,25 @@ Please generate a [Github issue](https://github.com/codedthemes/mantis-free-reac
 - [LinkedIn](https://www.linkedin.com/company/codedthemes/) 💼
 - [Instagram](https://www.instagram.com/codedthemes/) 📷
 - [Facebook](https://www.facebook.com/codedthemes) 🟦
+# PM2 Manager and Domain Monitor
+
+The active application is the Vite project in this directory. It uses PostgreSQL for authentication, roles, application assignments, monitored domains, settings, and audit activity. The sibling `next` directory is a separate template and is not used by this application.
+
+## Run from the project root
+
+```powershell
+cd vite
+corepack yarn install
+corepack yarn server
+```
+
+In another terminal, start the Vite development UI:
+
+```powershell
+cd vite
+corepack yarn start
+```
+
+Open `http://localhost:3000/free/`. Copy `.env.example` to `.env.local` and set the PostgreSQL and bootstrap administrator values before starting the API. The API creates its required tables on startup. For production, run `corepack yarn build` and use `corepack yarn start:production`; set `AUTH_COOKIE_SECURE=true` behind HTTPS.
+
+The Super Admin can create custom roles, assign permissions, create users, and assign individual PM2 applications. A non-Super Admin can only see, inspect, operate, deploy, and view logs for applications assigned to that user.

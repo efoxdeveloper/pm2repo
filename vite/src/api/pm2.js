@@ -11,6 +11,10 @@ export async function getApplications() {
   return request('/applications');
 }
 
+export async function analyzeApplication(cwd) {
+  return request('/applications/analyze', { method: 'POST', body: JSON.stringify({ cwd }) });
+}
+
 export async function createApplication(application) {
   return request('/applications', { method: 'POST', body: JSON.stringify(application) });
 }
@@ -23,6 +27,10 @@ export async function getApplicationLogs(id) {
   return request(`/applications/${id}/logs`);
 }
 
+export async function askApplicationQuestion(id, question) {
+  return request(`/applications/${id}/ai`, { method: 'POST', body: JSON.stringify({ question }) });
+}
+
 export async function getServerInfo() {
   return request('/server');
 }
@@ -33,4 +41,12 @@ export async function performApplicationAction(id, action) {
 
 export async function deployApplication(id) {
   return request(`/applications/${id}/deploy`, { method: 'POST' });
+}
+
+export async function pullApplication(id) {
+  return request(`/applications/${id}/git-pull`, { method: 'POST' });
+}
+
+export async function buildApplication(id) {
+  return request(`/applications/${id}/build`, { method: 'POST' });
 }

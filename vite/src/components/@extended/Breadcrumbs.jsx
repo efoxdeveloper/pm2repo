@@ -12,7 +12,7 @@ import MuiBreadcrumbs from '@mui/material/Breadcrumbs';
 // project imports
 import MainCard from 'components/MainCard';
 import navigation from 'menu-items';
-import { applications } from 'data/pm2';
+import { usePm2 } from 'contexts/Pm2Context';
 
 // assets
 import ApartmentOutlined from '@ant-design/icons/ApartmentOutlined';
@@ -37,6 +37,7 @@ export default function Breadcrumbs({
 }) {
   const theme = useTheme();
   const location = useLocation();
+  const { applications } = usePm2();
 
   const [main, setMain] = useState();
   const [item, setItem] = useState();
@@ -82,7 +83,7 @@ export default function Breadcrumbs({
       }
       return false;
     });
-  }, [customLocation]);
+  }, [applications, customLocation]);
 
   // set active item state
   const getCollapse = (menu) => {

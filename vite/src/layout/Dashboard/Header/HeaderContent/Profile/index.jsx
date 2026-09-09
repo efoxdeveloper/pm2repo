@@ -1,8 +1,10 @@
 import PropTypes from 'prop-types';
 import { useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 // material-ui
 import { useTheme } from '@mui/material/styles';
+import Button from '@mui/material/Button';
 import ButtonBase from '@mui/material/ButtonBase';
 import CardContent from '@mui/material/CardContent';
 import ClickAwayListener from '@mui/material/ClickAwayListener';
@@ -14,6 +16,12 @@ import Tabs from '@mui/material/Tabs';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import Box from '@mui/material/Box';
+import Alert from '@mui/material/Alert';
+import Dialog from '@mui/material/Dialog';
+import DialogActions from '@mui/material/DialogActions';
+import DialogContent from '@mui/material/DialogContent';
+import DialogTitle from '@mui/material/DialogTitle';
+import TextField from '@mui/material/TextField';
 
 // project imports
 import ProfileTab from './ProfileTab';
@@ -22,6 +30,8 @@ import Avatar from 'components/@extended/Avatar';
 import MainCard from 'components/MainCard';
 import Transitions from 'components/@extended/Transitions';
 import IconButton from 'components/@extended/IconButton';
+import { useAuth } from 'contexts/AuthContext';
+import { changePassword } from 'api/auth';
 
 // assets
 import LogoutOutlined from '@ant-design/icons/LogoutOutlined';
@@ -49,6 +59,8 @@ function a11yProps(index) {
 
 export default function Profile() {
   const theme = useTheme();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
 
   const anchorRef = useRef(null);
   const [open, setOpen] = useState(false);
@@ -64,9 +76,35 @@ export default function Profile() {
   };
 
   const [value, setValue] = useState(0);
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [passwords, setPasswords] = useState({ currentPassword: '', newPassword: '', confirmation: '' });
+  const [passwordError, setPasswordError] = useState('');
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   const handleChange = (event, newValue) => {
     setValue(newValue);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
+
+  const savePassword = async () => {
+    if (passwords.newPassword.length < 12) { setPasswordError('New password must be at least 12 characters.'); return; }
+    if (passwords.newPassword !== passwords.confirmation) { setPasswordError('New passwords do not match.'); return; }
+    try {
+      setPasswordSaving(true);
+      setPasswordError('');
+      await changePassword({ currentPassword: passwords.currentPassword, newPassword: passwords.newPassword });
+      setPasswordOpen(false);
+      setPasswords({ currentPassword: '', newPassword: '', confirmation: '' });
+      await handleLogout();
+    } catch (error) {
+      setPasswordError(error.message);
+    } finally {
+      setPasswordSaving(false);
+    }
   };
 
   return (
@@ -115,14 +153,14 @@ export default function Profile() {
                       <Stack direction="row" sx={{ gap: 1.25, alignItems: 'center' }}>
                         <Avatar alt="profile user" src={avatar1} sx={{ width: 32, height: 32 }} />
                         <Stack>
-                          <Typography variant="h6">John Doe</Typography>
+                          <Typography variant="h6">{user?.displayName || user?.username}</Typography>
                           <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                            UI/UX Designer
+                            {user?.role || 'Administrator'}
                           </Typography>
                         </Stack>
                       </Stack>
                       <Tooltip title="Logout">
-                        <IconButton size="large" sx={{ color: 'text.primary' }}>
+                        <IconButton size="large" sx={{ color: 'text.primary' }} onClick={handleLogout}>
                           <LogoutOutlined />
                         </IconButton>
                       </Tooltip>
@@ -166,7 +204,7 @@ export default function Profile() {
                     </Tabs>
                   </Box>
                   <TabPanel value={value} index={0} dir={theme.direction}>
-                    <ProfileTab />
+                    <ProfileTab onChangePassword={() => { setPasswordError(''); setPasswordOpen(true); setOpen(false); }} onLogout={handleLogout} />
                   </TabPanel>
                   <TabPanel value={value} index={1} dir={theme.direction}>
                     <SettingTab />
@@ -177,6 +215,11 @@ export default function Profile() {
           </Transitions>
         )}
       </Popper>
+      <Dialog open={passwordOpen} onClose={() => !passwordSaving && setPasswordOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>Change password</DialogTitle>
+        <DialogContent><Stack spacing={2} sx={{ pt: 1 }}>{passwordError && <Alert severity="error">{passwordError}</Alert>}<TextField type="password" label="Current password" value={passwords.currentPassword} onChange={(event) => setPasswords({ ...passwords, currentPassword: event.target.value })} fullWidth /><TextField type="password" label="New password" helperText="Minimum 12 characters" value={passwords.newPassword} onChange={(event) => setPasswords({ ...passwords, newPassword: event.target.value })} fullWidth /><TextField type="password" label="Confirm new password" value={passwords.confirmation} onChange={(event) => setPasswords({ ...passwords, confirmation: event.target.value })} fullWidth /></Stack></DialogContent>
+        <DialogActions><Button onClick={() => setPasswordOpen(false)} disabled={passwordSaving}>Cancel</Button><Button variant="contained" onClick={savePassword} disabled={passwordSaving || !passwords.currentPassword || passwords.newPassword.length < 12 || !passwords.confirmation}>Update password</Button></DialogActions>
+      </Dialog>
     </Box>
   );
 }

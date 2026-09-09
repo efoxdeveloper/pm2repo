@@ -4,6 +4,8 @@ import {
   DashboardOutlined,
   FileTextOutlined,
   HddOutlined,
+  GlobalOutlined,
+  TeamOutlined,
   SettingOutlined,
   ThunderboltOutlined,
   UserAddOutlined
@@ -16,6 +18,8 @@ const icons = {
   UserAddOutlined,
   FileTextOutlined,
   HddOutlined,
+  GlobalOutlined,
+  TeamOutlined,
   ThunderboltOutlined,
   SettingOutlined
 };
@@ -33,46 +37,64 @@ const dashboard = {
       type: 'item',
       url: '/dashboard',
       icon: icons.DashboardOutlined,
-      breadcrumbs: false
+      breadcrumbs: false,
+      permission: 'dashboard.view'
+    },
+    {
+      id: 'domains',
+      title: 'Domain Monitor',
+      type: 'item',
+      url: '/domains',
+      icon: icons.GlobalOutlined,
+      permission: 'domains.view'
     },
     {
       id: 'applications',
       title: 'Applications',
-      type: 'collapse',
+      type: 'item',
       url: '/applications',
       icon: icons.AppstoreOutlined,
-      children: [
-        { id: 'all-applications', title: 'All Applications', type: 'item', url: '/applications', icon: icons.AppstoreOutlined },
-        { id: 'add-application', title: 'Add Application', type: 'item', url: '/applications/new', icon: icons.UserAddOutlined }
-      ]
+      permission: 'applications.view'
     },
     {
       id: 'logs',
       title: 'Logs',
       type: 'item',
       url: '/logs',
-      icon: icons.FileTextOutlined
+      icon: icons.FileTextOutlined,
+      permission: 'logs.view'
     },
     {
       id: 'server',
       title: 'Server',
       type: 'item',
       url: '/server',
-      icon: icons.HddOutlined
+      icon: icons.HddOutlined,
+      permission: 'server.view'
+    },
+    {
+      id: 'access',
+      title: 'Access',
+      type: 'item',
+      url: '/access',
+      icon: icons.TeamOutlined,
+      permissionAny: ['users.manage', 'roles.manage']
     },
     {
       id: 'activity',
       title: 'Activity',
       type: 'item',
       url: '/activity',
-      icon: icons.ThunderboltOutlined
+      icon: icons.ThunderboltOutlined,
+      permission: 'activity.view'
     },
     {
       id: 'settings',
       title: 'Settings',
       type: 'item',
       url: '/settings',
-      icon: icons.SettingOutlined
+      icon: icons.SettingOutlined,
+      permission: 'settings.view'
     }
   ]
 };

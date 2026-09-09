@@ -50,7 +50,6 @@ export default function ApplicationActionsMenu({ application }) {
         <MenuItem disabled={isPending} onClick={() => { closeMenu(); navigate(`/applications/${application.id}`); }}>View Details</MenuItem>
         <MenuItem disabled={isPending} onClick={() => { closeMenu(); navigate(`/applications/${application.id}?tab=logs`); }}>View Logs</MenuItem>
         <MenuItem disabled={isPending} onClick={() => run('restart')}>Restart</MenuItem>
-        <MenuItem disabled={isPending} onClick={() => run('reload')}>Reload</MenuItem>
         {application.status === 'stopped' ? <MenuItem disabled={isPending} onClick={() => run('start')}>Start</MenuItem> : <MenuItem disabled={isPending} onClick={() => run('stop')}>Stop</MenuItem>}
         <MenuItem disabled={isPending} onClick={() => run('deploy')}>Deploy</MenuItem>
         <MenuItem disabled={isPending} onClick={() => run('delete')}>Delete</MenuItem>

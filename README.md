@@ -24,6 +24,37 @@ corepack yarn start
 ```
 
 Override ports when needed with `PM2_MANAGER_PORT`, `VITE_API_PORT`, and `VITE_DEV_PORT`.
+When the development UI and API are on different origins, set `PM2_MANAGER_ORIGIN` to the UI origin.
+
+## Domain monitoring
+
+Use the **Domain Monitor** item in the dashboard to paste one or more domains and scan their DNS records, IPv4/IPv6 addresses, HTTPS response, and TLS certificate details including expiry date, remaining days, issuer, subject, protocol, and fingerprint. Results are stored in PostgreSQL and automatically rescanned on the configured schedule.
+
+## Authentication and PostgreSQL
+
+Authentication uses PostgreSQL environment variables. Do not commit these values or put them in frontend code.
+
+```powershell
+$env:PGHOST = 'your-postgres-host'
+$env:PGPORT = '5432'
+$env:PGUSER = 'mantis'
+$env:PGDATABASE = 'mantis_db'
+$env:PGPASSWORD = 'your-database-password'
+$env:NODE_ENV = 'development'
+```
+
+Start the server once to create the authentication tables and permissions, then create the first application-level Super Admin with a separate password:
+
+```powershell
+corepack yarn --cwd .\vite install
+$env:AUTH_ADMIN_USERNAME = 'choose-an-admin-username'
+$env:AUTH_ADMIN_PASSWORD = 'choose-a-new-12-character-password'
+$env:AUTH_ADMIN_DISPLAY_NAME = 'Super Admin'
+node .\vite\server\create-admin.cjs
+Remove-Item Env:AUTH_ADMIN_PASSWORD
+```
+
+The login is at `/login`. Public registration is disabled. Super Admin can create custom roles, select permissions, create users, assign roles, reset passwords, and disable accounts from **Users & Roles**. Applications are assigned per user; non-Super Admin users can only see and manage applications assigned to them.
 
 The application action is `Deploy`. It runs a controlled `git pull --ff-only`, executes the repository's `build` script using its detected package manager, and reloads the selected PM2 process. If the pull or build fails, PM2 is not reloaded.
 

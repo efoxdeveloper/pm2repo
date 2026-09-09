@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Stack from '@mui/material/Stack';
 import TextField from '@mui/material/TextField';
 import ToggleButton from '@mui/material/ToggleButton';
@@ -28,7 +28,29 @@ export default function LogsViewer({ entries, terminal = false }) {
   const [autoScroll, setAutoScroll] = useState(true);
   const [paused, setPaused] = useState(false);
   const [cleared, setCleared] = useState(false);
-  const filtered = useMemo(() => entries.filter((entry) => (type === 'all' || entry.type === type) && `${entry.message} ${entry.application}`.toLowerCase().includes(query.toLowerCase())).map((entry, index) => ({ ...entry, sortKey: entry.sortKey ?? index })).sort((left, right) => right.sortKey - left.sortKey), [entries, query, type]);
+  const [displayEntries, setDisplayEntries] = useState(entries || []);
+  const containerRef = useRef(null);
+
+  useEffect(() => {
+    if (!paused) {
+      setDisplayEntries(entries || []);
+      setCleared(false);
+    }
+  }, [entries, paused]);
+
+  useEffect(() => {
+    if (autoScroll && !paused && containerRef.current) containerRef.current.scrollTop = 0;
+  }, [autoScroll, displayEntries, paused]);
+
+  const filtered = useMemo(() => displayEntries.filter((entry) => (type === 'all' || entry.type === type) && `${entry.message} ${entry.application}`.toLowerCase().includes(query.toLowerCase())).map((entry, index) => ({ ...entry, sortKey: entry.sortKey ?? index })).sort((left, right) => right.sortKey - left.sortKey), [displayEntries, query, type]);
+  const download = () => {
+    const content = filtered.map((entry) => `[${entry.timestamp}] [${entry.type.toUpperCase()}] ${entry.application}: ${entry.message}`).join('\n');
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(new Blob([content], { type: 'text/plain;charset=utf-8' }));
+    link.download = 'pm2-logs.txt';
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
 
   return (
     <>
@@ -42,11 +64,11 @@ export default function LogsViewer({ entries, terminal = false }) {
         <Stack direction="row" spacing={1} sx={{ alignItems: 'center', flexWrap: 'wrap' }}>
           <FormControlLabel control={<Switch size="small" checked={autoScroll} onChange={(event) => setAutoScroll(event.target.checked)} />} label="Auto Scroll" />
           <Button size="small" startIcon={<PauseOutlined />} onClick={() => setPaused((value) => !value)}>{paused ? 'Resume' : 'Pause'}</Button>
-          <Button size="small" startIcon={<DeleteOutlined />} onClick={() => { setCleared(true); notify('Logs cleared for this view.'); }}>Clear</Button>
-          <Button size="small" startIcon={<DownloadOutlined />} onClick={() => notify('Log download prepared.')}>Download</Button>
+          <Button size="small" startIcon={<DeleteOutlined />} onClick={() => { setCleared(true); setDisplayEntries([]); notify('Logs cleared for this view.'); }}>Clear view</Button>
+          <Button size="small" startIcon={<DownloadOutlined />} onClick={download} disabled={!filtered.length}>Download</Button>
         </Stack>
       </Stack>
-      <TableContainer sx={{ mx: 2, mb: 2, width: 'calc(100% - 32px)', maxHeight: 360, overflow: 'auto', border: 1, borderColor: 'divider' }}>
+      <TableContainer ref={containerRef} sx={{ mx: 2, mb: 2, width: 'calc(100% - 32px)', maxHeight: 360, overflow: 'auto', border: 1, borderColor: 'divider' }}>
         {cleared || !filtered.length ? <Box sx={{ p: 2, minHeight: 160 }}><Typography variant="body2" color="text.secondary">No logs available.</Typography></Box> : <Table size="small" stickyHeader aria-label="Application logs">
           <TableHead><TableRow><TableCell sx={{ width: 110 }}>Timestamp</TableCell>{!terminal && <TableCell sx={{ width: 150 }}>Application</TableCell>}<TableCell sx={{ width: 90 }}>Type</TableCell><TableCell>Message</TableCell></TableRow></TableHead>
           <TableBody>{filtered.map((entry, index) => <TableRow hover key={`${entry.timestamp}-${entry.application}-${index}`}><TableCell sx={{ fontFamily: 'monospace', verticalAlign: 'top' }}>{entry.timestamp}</TableCell>{!terminal && <TableCell sx={{ verticalAlign: 'top' }}>{entry.application}</TableCell>}<TableCell sx={{ verticalAlign: 'top' }}><Chip size="small" variant="combined" color={entry.type === 'error' ? 'error' : entry.type === 'warn' ? 'warning' : 'info'} label={entry.type.toUpperCase()} /></TableCell><TableCell sx={{ fontFamily: 'monospace', whiteSpace: 'normal', wordBreak: 'break-word', color: entry.type === 'error' ? 'error.main' : 'text.primary' }}>{entry.message}</TableCell></TableRow>)}</TableBody>

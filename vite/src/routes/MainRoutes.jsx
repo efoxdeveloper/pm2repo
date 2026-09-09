@@ -3,6 +3,7 @@ import { lazy } from 'react';
 // project imports
 import Loadable from 'components/Loadable';
 import DashboardLayout from 'layout/Dashboard';
+import RequireAuth from 'components/RequireAuth';
 
 // render- Dashboard
 const DashboardDefault = Loadable(lazy(() => import('pages/dashboard/default')));
@@ -13,20 +14,14 @@ const Logs = Loadable(lazy(() => import('pages/logs')));
 const Server = Loadable(lazy(() => import('pages/server')));
 const Activity = Loadable(lazy(() => import('pages/activity')));
 const Settings = Loadable(lazy(() => import('pages/settings')));
-
-// render - color
-const Color = Loadable(lazy(() => import('pages/component-overview/color')));
-const Typography = Loadable(lazy(() => import('pages/component-overview/typography')));
-const Shadow = Loadable(lazy(() => import('pages/component-overview/shadows')));
-
-// render - sample page
-const SamplePage = Loadable(lazy(() => import('pages/extra-pages/sample-page')));
+const Domains = Loadable(lazy(() => import('pages/domains')));
+const Access = Loadable(lazy(() => import('pages/access')));
 
 // ==============================|| MAIN ROUTING ||============================== //
 
 const MainRoutes = {
   path: '/',
-  element: <DashboardLayout />,
+  element: <RequireAuth><DashboardLayout /></RequireAuth>,
   children: [
     {
       path: '/',
@@ -48,25 +43,11 @@ const MainRoutes = {
     { path: 'server', element: <Server /> },
     { path: 'activity', element: <Activity /> },
     { path: 'settings', element: <Settings /> },
+    { path: 'domains', element: <Domains /> },
+    { path: 'access', element: <Access /> },
     {
       path: 'dashboard/default',
       element: <DashboardDefault />
-    },
-    {
-      path: 'typography',
-      element: <Typography />
-    },
-    {
-      path: 'color',
-      element: <Color />
-    },
-    {
-      path: 'shadow',
-      element: <Shadow />
-    },
-    {
-      path: 'sample-page',
-      element: <SamplePage />
     }
   ]
 };
