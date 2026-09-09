@@ -1,7 +1,7 @@
 import PropTypes from 'prop-types';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
-import { buildApplication, createApplication as createPm2Application, deployApplication, getApplicationLogs, getApplications, getServerInfo, performApplicationAction, pullApplication } from 'api/pm2';
+import { buildApplication, createApplication as createPm2Application, deployApplication, getApplicationLogs, getApplications, getServerInfo, installApplicationDependencies, performApplicationAction, pullApplication } from 'api/pm2';
 import { getActivity } from 'api/activity';
 import { getSettings } from 'api/settings';
 import { useAuth } from 'contexts/AuthContext';
@@ -248,9 +248,33 @@ export function Pm2Provider({ children }) {
     [applications, notify, refreshActivity]
   );
 
+  const runNpmInstall = useCallback(
+    async (id) => {
+      const application = applications.find((item) => item.id === id);
+      if (!application) return;
+      try {
+        setPendingActions((current) => ({ ...current, [id]: 'npm-install' }));
+        const result = await installApplicationDependencies(id);
+        setCommandResults((current) => ({ ...current, [id]: { ...(current[id] || {}), npmInstall: result } }));
+        await refreshActivity();
+        notify(`${application.displayName} dependencies installed successfully.`);
+        return result;
+      } catch (requestError) {
+        notify(requestError.message, 'error');
+      } finally {
+        setPendingActions((current) => {
+          const next = { ...current };
+          delete next[id];
+          return next;
+        });
+      }
+    },
+    [applications, notify, refreshActivity]
+  );
+
   const value = useMemo(
-    () => ({ applications, activity, server, serverHistory, logs, loading, error, pendingActions, deploymentResults, commandResults, notify, createApplication, performAction, deleteApplication, deploy, runGitPull, runBuild, refreshApplications, refreshServer, refreshActivity, refreshLogs }),
-    [activity, applications, commandResults, createApplication, deleteApplication, deploy, deploymentResults, error, loading, logs, pendingActions, notify, performAction, refreshActivity, refreshApplications, refreshLogs, refreshServer, runBuild, runGitPull, server, serverHistory]
+    () => ({ applications, activity, server, serverHistory, logs, loading, error, pendingActions, deploymentResults, commandResults, notify, createApplication, performAction, deleteApplication, deploy, runGitPull, runBuild, runNpmInstall, refreshApplications, refreshServer, refreshActivity, refreshLogs }),
+    [activity, applications, commandResults, createApplication, deleteApplication, deploy, deploymentResults, error, loading, logs, pendingActions, notify, performAction, refreshActivity, refreshApplications, refreshLogs, refreshServer, runBuild, runGitPull, runNpmInstall, server, serverHistory]
   );
 
   return (

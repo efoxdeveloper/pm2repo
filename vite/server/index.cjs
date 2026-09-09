@@ -1045,6 +1045,15 @@ async function runBuild(cwd) {
   return { ...build, output: [result.stdout, result.stderr].filter(Boolean).join('\n') || 'Build completed successfully.' };
 }
 
+async function installApplicationDependencies(cwd) {
+  if (!cwd || !fs.existsSync(cwd) || !fs.statSync(cwd).isDirectory()) throw new Error('Application working directory does not exist');
+  const packagePath = path.join(cwd, 'package.json');
+  if (!fs.existsSync(packagePath)) throw new Error(`${cwd} does not contain a package.json file`);
+  const command = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const result = await runCommand(command, ['i'], cwd, { env: { ...process.env, npm_config_yes: 'true' } });
+  return { command: 'npm i', output: [result.stdout, result.stderr].filter(Boolean).join('\n') || 'Dependencies installed successfully.' };
+}
+
 function normalizeStatus(status) {
   if (status === 'online' || status === 'stopped' || status === 'errored' || status === 'launching') return status;
   if (status === 'waiting for restart') return 'launching';
@@ -1582,7 +1591,7 @@ async function handle(request, response) {
       sendJson(response, 201, { application });
       return;
     }
-    const match = url.pathname.match(/^\/api\/pm2\/applications\/(\d+)(?:\/(logs|deploy|ai|git-pull|build|actions\/([a-z]+)))?$/);
+    const match = url.pathname.match(/^\/api\/pm2\/applications\/(\d+)(?:\/(logs|deploy|ai|git-pull|build|npm-install|actions\/([a-z]+)))?$/);
     if (request.method === 'GET' && url.pathname === '/api/pm2/health') { sendJson(response, 200, { ok: true, pm2Home: process.env.PM2_HOME }); return; }
     if (request.method === 'GET' && url.pathname === '/api/pm2/applications') { sendJson(response, 200, { applications: await getApplicationsForUser(user) }); return; }
     if (request.method === 'GET' && url.pathname === '/api/pm2/server') { sendJson(response, 200, { server: await getServer() }); return; }
@@ -1591,6 +1600,7 @@ async function handle(request, response) {
     if (match && request.method === 'POST' && match[2] === 'ai') { const application = await getApplication(Number(match[1])); await ensureApplicationAccess(user, application); const payload = await readJsonBody(request); const answer = await answerApplicationQuestion(application, payload.question); await recordAudit({ userId: user.id, application: application.displayName, action: 'Ask application AI', result: 'success', details: 'Asked an AI question about the application' }); sendJson(response, 200, answer); return; }
     if (match && request.method === 'POST' && match[2] === 'git-pull') { const target = await getApplication(Number(match[1])); await ensureApplicationAccess(user, target); const result = await pullApplication(Number(match[1])); await recordAudit({ userId: user.id, application: target.displayName, action: 'Git pull', result: 'success', details: 'Pulled latest changes from origin' }); sendJson(response, 200, result); return; }
     if (match && request.method === 'POST' && match[2] === 'build') { const target = await getApplication(Number(match[1])); await ensureApplicationAccess(user, target); const result = await buildApplication(Number(match[1])); await recordAudit({ userId: user.id, application: target.displayName, action: 'Build', result: 'success', details: `Ran ${result.command}` }); sendJson(response, 200, result); return; }
+    if (match && request.method === 'POST' && match[2] === 'npm-install') { const target = await getApplication(Number(match[1])); await ensureApplicationAccess(user, target); const result = await installApplicationDependencies(target.cwd); await recordAudit({ userId: user.id, application: target.displayName, action: 'npm i', result: 'success', details: `Installed dependencies in ${target.cwd}` }); sendJson(response, 200, result); return; }
     if (match && request.method === 'POST' && match[2] === 'deploy') {
       await ensureApplicationAccess(user, await getApplication(Number(match[1])));
       const result = await deployApplication(Number(match[1]));

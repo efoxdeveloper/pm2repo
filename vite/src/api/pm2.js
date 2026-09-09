@@ -50,3 +50,7 @@ export async function pullApplication(id) {
 export async function buildApplication(id) {
   return request(`/applications/${id}/build`, { method: 'POST' });
 }
+
+export async function installApplicationDependencies(id) {
+  return request(`/applications/${id}/npm-install`, { method: 'POST' });
+}
