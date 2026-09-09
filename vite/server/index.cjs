@@ -14,7 +14,7 @@ process.env.PM2_HOME = process.env.PM2_HOME || path.join(os.homedir(), '.pm2');
 const pm2 = require('pm2');
 
 const PORT = Number(process.env.PM2_MANAGER_PORT || 5010);
-const HOST = process.env.PM2_MANAGER_HOST || '127.0.0.1';
+const HOST = process.env.PM2_MANAGER_HOST || '0.0.0.0';
 const DIST_DIR = path.resolve(__dirname, '..', 'dist');
 const FRONTEND_BASE_PATH = (process.env.PM2_MANAGER_BASE_PATH || '/free').replace(/\/+$/, '') || '/';
 const APPLICATION_SCHEMA_SQL = `
