@@ -20,6 +20,10 @@ export async function getDomains(params = {}) {
   return request(queryString(params));
 }
 
+export async function getDomainDashboard() {
+  return request('/dashboard');
+}
+
 export async function getDomainOptions() {
   return request('/options');
 }
@@ -35,6 +39,10 @@ export async function exportDomains(params = {}) {
 
 export async function scanDomains(domains, management) {
   return request('/scan', { method: 'POST', body: JSON.stringify({ domains, management }) });
+}
+
+export async function importDomains(rows) {
+  return request('/import', { method: 'POST', body: JSON.stringify({ rows }) });
 }
 
 export async function deleteDomain(domain) {

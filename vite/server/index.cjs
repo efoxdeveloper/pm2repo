@@ -54,6 +54,9 @@ CREATE TABLE IF NOT EXISTS monitored_domains (
   auto_renewal BOOLEAN NOT NULL DEFAULT FALSE,
   primary_contact TEXT,
   webspace_gb NUMERIC(12, 2),
+  webspace_start_date DATE,
+  ssl_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  ssl_enabled_date DATE,
   notes TEXT,
   scan_enabled BOOLEAN NOT NULL DEFAULT TRUE
 );
@@ -68,6 +71,9 @@ ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS expiry_date DATE;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS auto_renewal BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS primary_contact TEXT;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_gb NUMERIC(12, 2);
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_start_date DATE;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS ssl_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS ssl_enabled_date DATE;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS scan_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
@@ -213,6 +219,9 @@ const MONITORED_DOMAIN_SELECT = `
     TO_CHAR(expiry_date, 'YYYY-MM-DD') AS "expiryDate",
     auto_renewal AS "autoRenewal", primary_contact AS "primaryContact",
     webspace_gb AS webspace,
+    TO_CHAR(webspace_start_date, 'YYYY-MM-DD') AS "webspaceStartDate",
+    ssl_enabled AS "sslEnabled",
+    TO_CHAR(ssl_enabled_date, 'YYYY-MM-DD') AS "sslEnabledDate",
     notes,
     scan_enabled AS "scanEnabled"
   FROM monitored_domains
@@ -239,6 +248,9 @@ function mapMonitoredDomain(row) {
       autoRenewal: row.autoRenewal,
       primaryContact: row.primaryContact,
       webspace: row.webspace,
+      webspaceStartDate: row.webspaceStartDate,
+      sslEnabled: row.sslEnabled,
+      sslEnabledDate: row.sslEnabledDate,
       notes: row.notes
     },
     scanEnabled: row.scanEnabled
@@ -326,7 +338,7 @@ function normalizeDomainManagement(value) {
     const value = source[key];
     return value === undefined || value === null || String(value).trim() === '' ? null : String(value).trim();
   };
-  const date = (key) => /^\d{4}-\d{2}-\d{2}$/.test(String(source[key] || '')) ? String(source[key]) : null;
+  const date = (key) => normalizeDateOnly(source[key]);
   const rawWebspace = String(source.webspace || '').trim();
   const webspace = Number(rawWebspace);
   const registrar = shortenRegistrarName(text('registrar'));
@@ -340,8 +352,44 @@ function normalizeDomainManagement(value) {
     autoRenewal: source.autoRenewal === true,
     primaryContact: text('primaryContact'),
     webspace: rawWebspace && Number.isFinite(webspace) && webspace >= 0 ? webspace : null,
+    webspaceStartDate: date('webspaceStartDate'),
+    sslEnabled: source.sslEnabled === true,
+    sslEnabledDate: source.sslEnabled === true ? date('sslEnabledDate') : null,
     notes: text('notes')
   };
+}
+
+function normalizeDateOnly(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+  const isoMatch = raw.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+  const compactMatch = raw.match(/^(\d{4})(\d{2})(\d{2})$/);
+  const numericMatch = raw.match(/^(\d{1,4})[-/.](\d{1,2})[-/.](\d{1,4})$/);
+  let year;
+  let month;
+  let day;
+  if (compactMatch) {
+    [, year, month, day] = compactMatch;
+  } else if (isoMatch) {
+    [, year, month, day] = isoMatch;
+  } else if (numericMatch) {
+    const first = Number(numericMatch[1]);
+    const second = Number(numericMatch[2]);
+    const third = Number(numericMatch[3]);
+    if (numericMatch[1].length === 4) [year, month, day] = [first, second, third];
+    else if (numericMatch[3].length === 4 && first > 12) [year, month, day] = [third, second, first];
+    else if (numericMatch[3].length === 4 && second > 12) [year, month, day] = [third, first, second];
+    else if (numericMatch[3].length === 4) [year, month, day] = [third, second, first];
+  } else if (/^\d{1,6}$/.test(raw) && Number(raw) >= 1 && Number(raw) <= 100000) {
+    const date = new Date(Date.UTC(1899, 11, 30) + Number(raw) * 86400000);
+    return date.toISOString().slice(0, 10);
+  } else {
+    const parsed = new Date(raw);
+    if (!Number.isNaN(parsed.valueOf())) return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
+  }
+  const parsed = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  if (!year || !month || !day || Number.isNaN(parsed.valueOf()) || parsed.getUTCFullYear() !== Number(year) || parsed.getUTCMonth() !== Number(month) - 1 || parsed.getUTCDate() !== Number(day)) return null;
+  return parsed.toISOString().slice(0, 10);
 }
 
 function shortenRegistrarName(value) {
@@ -382,9 +430,9 @@ async function saveDomainResults(results) {
       await client.query(`
         INSERT INTO monitored_domains (domain, added_at, scanned_at, status, status_message, dns, ssl, http, registration,
           client_company, maintenance_responsibility, registrar, dns_managed_by,
-          registration_date, expiry_date, auto_renewal, primary_contact, webspace_gb, notes, scan_enabled)
+          registration_date, expiry_date, auto_renewal, primary_contact, webspace_gb, webspace_start_date, ssl_enabled, ssl_enabled_date, notes, scan_enabled)
         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb,
-          $10, $11, $12, $13, $14::date, $15::date, $16, $17, $18, $19, TRUE)
+          $10, $11, $12, $13, $14::date, $15::date, $16, $17, $18, $19::date, $20, $21::date, $22, TRUE)
         ON CONFLICT (domain) DO UPDATE SET
           scanned_at = EXCLUDED.scanned_at,
           status = EXCLUDED.status,
@@ -402,6 +450,9 @@ async function saveDomainResults(results) {
           auto_renewal = EXCLUDED.auto_renewal,
           primary_contact = EXCLUDED.primary_contact,
           webspace_gb = EXCLUDED.webspace_gb,
+          webspace_start_date = EXCLUDED.webspace_start_date,
+          ssl_enabled = EXCLUDED.ssl_enabled,
+          ssl_enabled_date = EXCLUDED.ssl_enabled_date,
           notes = EXCLUDED.notes
       `, [
         // Keep management fields relational in PostgreSQL; the nested object is only the API shape.
@@ -423,6 +474,9 @@ async function saveDomainResults(results) {
         management.autoRenewal,
         management.primaryContact,
         management.webspace,
+        management.webspaceStartDate,
+        management.sslEnabled,
+        management.sslEnabledDate,
         management.notes
       ]);
     }
@@ -679,14 +733,14 @@ async function scanDomain(hostname, settings = {}) {
   return { domain: hostname, scannedAt, status, statusMessage, dns: dnsDetails, ssl, http: httpDetails, registration };
 }
 
-async function scanAndStoreDomains(values, management = null) {
+async function scanAndStoreDomains(values, management = null, force = false) {
   const candidates = Array.isArray(values) ? values : String(values || '').split(/[\s,;]+/);
   const domains = [...new Set(candidates.map(normalizeDomain).filter(Boolean))];
   if (!domains.length) throw new Error('Enter at least one valid domain name');
   if (domains.length > 100) throw new Error('Scan up to 100 domains at a time');
 
   const savedDomains = new Map((await readMonitoredDomains()).map((item) => [item.domain, item]));
-  const enabledDomains = domains.filter((domain) => !savedDomains.has(domain) || savedDomains.get(domain).scanEnabled !== false);
+  const enabledDomains = domains.filter((domain) => force || !savedDomains.has(domain) || savedDomains.get(domain).scanEnabled !== false);
   if (!enabledDomains.length) return [];
   const settings = await auth.getSettings();
   const normalizedManagement = management === null ? null : normalizeDomainManagement(management);
@@ -856,7 +910,7 @@ function csvCell(value) {
 }
 
 function monitoredDomainsCsv(domains) {
-  const headers = ['Domain', 'Client / Company', 'Maintenance Responsibility', 'Registrar', 'DNS Managed By', 'Auto-Renewal', 'Primary Contact', 'Webspace (GB)', 'Registration Date', 'Expiry Date', 'SSL Days Remaining', 'Domain Days Remaining', 'IP Addresses', 'Health Status', 'Last Scanned', 'Notes'];
+  const headers = ['Domain', 'Client / Company', 'Maintenance Responsibility', 'Registrar', 'DNS Managed By', 'Auto-Renewal', 'Primary Contact', 'Webspace (GB)', 'Webspace Start Date', 'SSL Enabled', 'SSL Enabled Date', 'Registration Date', 'Expiry Date', 'SSL Days Remaining', 'Domain Days Remaining', 'IP Addresses', 'Health Status', 'Last Scanned', 'Notes'];
   const rows = domains.map((item) => [
     item.domain,
     item.management.clientCompany,
@@ -866,6 +920,9 @@ function monitoredDomainsCsv(domains) {
     item.management.autoRenewal ? 'Yes' : 'No',
     item.management.primaryContact,
     item.management.webspace,
+    item.management.webspaceStartDate,
+    item.management.sslEnabled ? 'Yes' : 'No',
+    item.management.sslEnabledDate,
     item.management.registrationDate,
     item.management.expiryDate,
     item.ssl?.daysRemaining,
@@ -880,6 +937,64 @@ function monitoredDomainsCsv(domains) {
 
 async function handleDomainApi(request, response, url) {
   await initializeDomainStorage();
+
+  if (request.method === 'GET' && url.pathname === '/api/domains/dashboard') {
+    const domains = await readMonitoredDomains();
+    const count = (predicate) => domains.filter(predicate).length;
+    const daysValue = (value) => value === null || value === undefined || !Number.isFinite(Number(value)) ? null : Number(value);
+    const sslDays = (item) => daysValue(item.ssl?.daysRemaining);
+    const domainDays = (item) => daysValue(item.registration?.daysRemaining);
+    const bucketCounts = (getDays) => ({
+      expired: count((item) => getDays(item) !== null && getDays(item) < 0),
+      seven: count((item) => getDays(item) !== null && getDays(item) >= 0 && getDays(item) <= 7),
+      thirty: count((item) => getDays(item) !== null && getDays(item) > 7 && getDays(item) <= 30),
+      later: count((item) => getDays(item) !== null && getDays(item) > 30),
+      unknown: count((item) => getDays(item) === null)
+    });
+    const webspaceValues = domains.map((item) => Number(item.management?.webspace)).filter((value) => Number.isFinite(value) && value >= 0);
+    const dashboardDomain = (item) => ({
+      domain: item.domain,
+      status: item.status,
+      statusMessage: item.statusMessage,
+      scannedAt: item.scannedAt,
+      ssl: { daysRemaining: item.ssl?.daysRemaining },
+      registration: { daysRemaining: item.registration?.daysRemaining },
+      management: {
+        clientCompany: item.management?.clientCompany,
+        webspace: item.management?.webspace,
+        sslEnabled: item.management?.sslEnabled,
+        autoRenewal: item.management?.autoRenewal
+      }
+    });
+    const sortByRisk = (left, right) => {
+      const statusRank = { critical: 0, error: 1, warning: 2, healthy: 3 };
+      const leftDays = Math.min(...[sslDays(left), domainDays(left)].filter((value) => value !== null), 9999);
+      const rightDays = Math.min(...[sslDays(right), domainDays(right)].filter((value) => value !== null), 9999);
+      return (statusRank[left.status] ?? 4) - (statusRank[right.status] ?? 4) || leftDays - rightDays || left.domain.localeCompare(right.domain);
+    };
+    const riskDomains = domains.filter((item) => item.status !== 'healthy' || [sslDays(item), domainDays(item)].some((value) => value !== null && value <= 30)).sort(sortByRisk).slice(0, 10);
+    const recentDomains = [...domains].sort((left, right) => new Date(right.scannedAt || 0).valueOf() - new Date(left.scannedAt || 0).valueOf()).slice(0, 8);
+    sendJson(response, 200, {
+      domains: { atRisk: riskDomains.map(dashboardDomain), recent: recentDomains.map(dashboardDomain) },
+      summary: {
+        total: domains.length,
+        healthy: count((item) => item.status === 'healthy'),
+        attention: count((item) => ['warning', 'critical'].includes(item.status)),
+        errors: count((item) => item.status === 'error'),
+        sslEnabled: count((item) => item.management?.sslEnabled === true),
+        sslExpiring: count((item) => sslDays(item) !== null && sslDays(item) >= 0 && sslDays(item) <= 30),
+        sslExpired: count((item) => sslDays(item) !== null && sslDays(item) < 0),
+        domainExpiring: count((item) => domainDays(item) !== null && domainDays(item) >= 0 && domainDays(item) <= 30),
+        domainExpired: count((item) => domainDays(item) !== null && domainDays(item) < 0),
+        webspaceTracked: webspaceValues.length,
+        totalWebspace: webspaceValues.reduce((total, value) => total + value, 0),
+        autoRenewal: count((item) => item.management?.autoRenewal === true),
+        scansToday: count((item) => item.scannedAt && new Date(item.scannedAt).toDateString() === new Date().toDateString())
+      },
+      expiry: { ssl: bucketCounts(sslDays), domain: bucketCounts(domainDays) }
+    });
+    return true;
+  }
 
   if (request.method === 'GET' && url.pathname === '/api/domains/export') {
     const { domains } = await queryMonitoredDomains(domainFiltersFromSearchParams(url.searchParams));
@@ -926,6 +1041,31 @@ async function handleDomainApi(request, response, url) {
     return true;
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/domains/import') {
+    if (isRateLimited(request, 'domain-import', 3, 5 * 60 * 1000)) { sendJson(response, 429, { error: 'Too many imports. Try again later.' }); return true; }
+    const payload = await readJsonBody(request);
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+    if (!rows.length) { sendJson(response, 400, { error: 'No import rows were supplied' }); return true; }
+    if (rows.length > 100) { sendJson(response, 400, { error: 'Import up to 100 domains at a time' }); return true; }
+    const results = [];
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index] || {};
+      const domain = normalizeDomain(row.domain);
+      if (!domain) {
+        results.push({ row: index + 1, domain: row.domain || '', success: false, error: 'Invalid or missing domain name' });
+        continue;
+      }
+      try {
+        const scanned = await scanAndStoreDomains([domain], row.management || {}, true);
+        results.push({ row: index + 1, domain, success: true, status: scanned[0]?.status || 'saved' });
+      } catch (error) {
+        results.push({ row: index + 1, domain, success: false, error: error.message });
+      }
+    }
+    sendJson(response, 200, { imported: results.filter((item) => item.success).length, failed: results.filter((item) => !item.success).length, results });
+    return true;
+  }
+
   if (request.method === 'POST' && url.pathname === '/api/domains/scan') {
     if (isRateLimited(request, 'domain-scan', 10, 5 * 60 * 1000)) { sendJson(response, 429, { error: 'Too many scans. Try again later.' }); return true; }
     const payload = await readJsonBody(request);
@@ -952,9 +1092,12 @@ async function handleDomainApi(request, response, url) {
             auto_renewal = $5,
             primary_contact = $6,
             webspace_gb = $7,
-            notes = $8
-        WHERE domain = $9
-      `, [management.clientCompany, management.maintenanceResponsibility, management.registrar, management.dnsManagedBy, management.autoRenewal, management.primaryContact, management.webspace, management.notes, domain]);
+            webspace_start_date = $8::date,
+            ssl_enabled = $9,
+            ssl_enabled_date = $10::date,
+            notes = $11
+        WHERE domain = $12
+      `, [management.clientCompany, management.maintenanceResponsibility, management.registrar, management.dnsManagedBy, management.autoRenewal, management.primaryContact, management.webspace, management.webspaceStartDate, management.sslEnabled, management.sslEnabledDate, management.notes, domain]);
     }
     sendJson(response, 200, { domains: await readMonitoredDomains() });
     return true;
@@ -1025,6 +1168,7 @@ function readJsonBody(request) {
 }
 
 function requiredPermission(pathname, method) {
+  if (pathname === '/api/domains/dashboard') return method === 'GET' ? 'domain-dashboard.view' : 'domains.manage';
   if (pathname.startsWith('/api/domains')) return method === 'GET' ? 'domains.view' : 'domains.manage';
   if (pathname === '/api/activity') return 'activity.view';
   if (pathname === '/api/settings') return method === 'GET' ? 'settings.view' : 'settings.manage';

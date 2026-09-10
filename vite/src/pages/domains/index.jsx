@@ -5,6 +5,7 @@ import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
 import CircularProgress from '@mui/material/CircularProgress';
+import Collapse from '@mui/material/Collapse';
 import Dialog from '@mui/material/Dialog';
 import DialogContent from '@mui/material/DialogContent';
 import DialogTitle from '@mui/material/DialogTitle';
@@ -38,12 +39,15 @@ import GlobalOutlined from '@ant-design/icons/GlobalOutlined';
 import DeleteOutlined from '@ant-design/icons/DeleteOutlined';
 import EditOutlined from '@ant-design/icons/EditOutlined';
 import EyeOutlined from '@ant-design/icons/EyeOutlined';
+import FilterOutlined from '@ant-design/icons/FilterOutlined';
 import MoreOutlined from '@ant-design/icons/MoreOutlined';
 import PlusOutlined from '@ant-design/icons/PlusOutlined';
 import ReloadOutlined from '@ant-design/icons/ReloadOutlined';
 import SafetyCertificateOutlined from '@ant-design/icons/SafetyCertificateOutlined';
 import SearchOutlined from '@ant-design/icons/SearchOutlined';
+import UploadOutlined from '@ant-design/icons/UploadOutlined';
 import MainCard from 'components/MainCard';
+import DomainImportDialog from 'components/domains/DomainImportDialog';
 import { deleteDomain, exportDomains, getDomainOptions, getDomains, scanDomains, updateDomainManagement, updateDomainScan } from 'api/domains';
 
 const statusColors = { healthy: 'success', warning: 'warning', critical: 'error', error: 'error' };
@@ -59,6 +63,9 @@ function createDefaultManagement() {
     autoRenewal: false,
     primaryContact: '',
     webspace: '',
+    webspaceStartDate: '',
+    sslEnabled: false,
+    sslEnabledDate: '',
     notes: ''
   };
 }
@@ -67,6 +74,12 @@ function formatDate(value) {
   if (!value) return '—';
   const date = new Date(value);
   return Number.isNaN(date.valueOf()) ? '—' : date.toLocaleString();
+}
+
+function formatDateOnly(value) {
+  if (!value) return '—';
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.valueOf()) ? '—' : date.toLocaleDateString();
 }
 
 function formatDays(value) {
@@ -109,6 +122,9 @@ function ManagementDetails({ management }) {
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="DNS managed by">{management.dnsManagedBy}</DetailRow></Grid>
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Auto-renewal">{management.autoRenewal ? 'Yes' : 'No'}</DetailRow></Grid>
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Webspace">{management.webspace === null || management.webspace === undefined || management.webspace === '' ? '—' : `${management.webspace} GB`}</DetailRow></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Webspace since">{formatDateOnly(management.webspaceStartDate)}</DetailRow></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="SSL enabled">{management.sslEnabled ? 'Yes' : 'No'}</DetailRow></Grid>
+        {management.sslEnabled && <Grid size={{ xs: 12, md: 6 }}><DetailRow label="SSL enabled date">{formatDateOnly(management.sslEnabledDate)}</DetailRow></Grid>}
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Registration date">{management.registrationDate || 'Unavailable from registry'}</DetailRow></Grid>
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Expiry date">{management.expiryDate || 'Unavailable from registry'}</DetailRow></Grid>
         <Grid size={12}><DetailRow label="Notes">{management.notes}</DetailRow></Grid>
@@ -220,6 +236,9 @@ export default function DomainsPage() {
   const [detailTab, setDetailTab] = useState(0);
   const [actionMenuAnchor, setActionMenuAnchor] = useState(null);
   const [actionMenuDomain, setActionMenuDomain] = useState('');
+  const [utilityMenuAnchor, setUtilityMenuAnchor] = useState(null);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [editingDomain, setEditingDomain] = useState(null);
   const [managementForm, setManagementForm] = useState(createDefaultManagement);
@@ -372,6 +391,8 @@ export default function DomainsPage() {
   };
 
   const actionDomain = domains.find((item) => item.domain === actionMenuDomain);
+  const activeFilterCount = Object.entries(filters).filter(([key, value]) => key !== 'search' && value).length;
+  const hasActiveFilters = Object.values(filters).some(Boolean);
 
   const handleRescan = async (domain) => {
     try {
@@ -415,26 +436,33 @@ export default function DomainsPage() {
     }
   };
 
+  const closeUtilityMenu = () => setUtilityMenuAnchor(null);
+
+  const openDomainDetails = (domain) => {
+    setSelected(domain);
+    setDetailTab(0);
+  };
+
   return (
     <Grid container rowSpacing={3} columnSpacing={2.75}>
       <Grid size={12}>
         <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 1, justifyContent: 'space-between', alignItems: { md: 'center' } }}>
           <Box>
             <Typography variant="h5">Domain Monitor</Typography>
+            <Typography variant="body2" color="text.secondary">Track domain health, hosting, and certificate status.</Typography>
           </Box>
           <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1 }}>
+            <Button variant="outlined" startIcon={<UploadOutlined />} onClick={() => setImportOpen(true)} disabled={scanning}>
+              Import Domains
+            </Button>
             <Button variant="contained" startIcon={<PlusOutlined />} onClick={openAddDrawer} disabled={scanning}>
               Add Domain
             </Button>
-            <Button variant="outlined" onClick={handleScanNow} disabled={scanning}>
-              {scanning ? <CircularProgress size={20} color="inherit" /> : 'Scan Now'}
-            </Button>
-            <Button variant="outlined" onClick={handleExport} disabled={exporting || loading}>
-              {exporting ? <CircularProgress size={20} color="inherit" /> : 'Export CSV'}
-            </Button>
-            <Button variant="outlined" startIcon={<ReloadOutlined />} onClick={handleRefresh} disabled={loading || scanning}>
-              Refresh list
-            </Button>
+            <Tooltip title="More actions">
+              <IconButton aria-label="More domain monitor actions" onClick={(event) => setUtilityMenuAnchor(event.currentTarget)}>
+                <MoreOutlined />
+              </IconButton>
+            </Tooltip>
           </Stack>
         </Stack>
       </Grid>
@@ -445,7 +473,7 @@ export default function DomainsPage() {
           </Alert>
         </Grid>
       )}
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+      <Grid size={{ xs: 12, sm: 4 }}>
         <MainCard>
           <Stack direction="row" sx={{ gap: 1.5, alignItems: 'center' }}>
             <GlobalOutlined style={{ fontSize: 24, color: '#1677ff' }} />
@@ -458,7 +486,7 @@ export default function DomainsPage() {
           </Stack>
         </MainCard>
       </Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+      <Grid size={{ xs: 12, sm: 4 }}>
         <MainCard>
           <Stack direction="row" sx={{ gap: 1.5, alignItems: 'center' }}>
             <SafetyCertificateOutlined style={{ fontSize: 24, color: '#52c41a' }} />
@@ -471,28 +499,16 @@ export default function DomainsPage() {
           </Stack>
         </MainCard>
       </Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+      <Grid size={{ xs: 12, sm: 4 }}>
         <MainCard>
           <Stack direction="row" sx={{ gap: 1.5, alignItems: 'center' }}>
             <SafetyCertificateOutlined style={{ fontSize: 24, color: '#faad14' }} />
             <Box>
-              <Typography variant="h4">{summary.attention}</Typography>
+              <Typography variant="h4">{summary.attention + summary.errors}</Typography>
               <Typography variant="body2" color="text.secondary">
-                Expiring soon
+                Needs attention
               </Typography>
-            </Box>
-          </Stack>
-        </MainCard>
-      </Grid>
-      <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-        <MainCard>
-          <Stack direction="row" sx={{ gap: 1.5, alignItems: 'center' }}>
-            <GlobalOutlined style={{ fontSize: 24, color: '#ff4d4f' }} />
-            <Box>
-              <Typography variant="h4">{summary.errors}</Typography>
-              <Typography variant="body2" color="text.secondary">
-                Scan errors
-              </Typography>
+              {summary.errors > 0 && <Typography variant="caption" color="error.main">{summary.errors} scan {summary.errors === 1 ? 'error' : 'errors'}</Typography>}
             </Box>
           </Stack>
         </MainCard>
@@ -503,73 +519,46 @@ export default function DomainsPage() {
           title="Monitored domains"
         >
           <Stack sx={{ p: 2, gap: 2 }}>
-            <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 2 }}>
-              <TextField size="small" label="Search" value={filters.search} onChange={updateFilter('search')} placeholder="Domain, client, registrar..." slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> } }} sx={{ minWidth: { md: 280 } }} />
-              <Autocomplete
-                options={domainOptions.clientCompanies}
-                openOnFocus
-                value={filters.clientCompany || null}
-                onChange={(_event, value) => updateFilterValue('clientCompany', value || '')}
-                renderInput={(params) => <TextField {...params} size="small" label="Client / Company" placeholder="Search clients" />}
-                fullWidth
-              />
-              <Autocomplete
-                options={domainOptions.registrars}
-                openOnFocus
-                value={filters.registrar || null}
-                onChange={(_event, value) => updateFilterValue('registrar', value || '')}
-                renderInput={(params) => <TextField {...params} size="small" label="Registrar" placeholder="Search registrars" />}
-                fullWidth
-              />
+            <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1, alignItems: { sm: 'center' } }}>
+              <TextField size="small" label="Search domains" value={filters.search} onChange={updateFilter('search')} placeholder="Domain, client, or registrar" slotProps={{ input: { startAdornment: <InputAdornment position="start"><SearchOutlined /></InputAdornment> } }} fullWidth />
+              <Button variant={filtersOpen ? 'contained' : 'outlined'} startIcon={<FilterOutlined />} onClick={() => setFiltersOpen((current) => !current)} sx={{ minWidth: 130 }}>
+                Filters{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+              </Button>
+              {hasActiveFilters && <Button variant="text" onClick={clearFilters} sx={{ minWidth: 110 }}>Clear</Button>}
             </Stack>
-            <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 2 }}>
-              <FormControl size="small" fullWidth>
-                <InputLabel>Maintenance</InputLabel>
-                <Select label="Maintenance" value={filters.maintenanceResponsibility} onChange={updateFilter('maintenanceResponsibility')}>
-                  <MenuItem value="">All maintenance types</MenuItem>
-                  <MenuItem value="Us">Us</MenuItem>
-                  <MenuItem value="Client">Client</MenuItem>
-                  <MenuItem value="Shared">Shared</MenuItem>
-                  <MenuItem value="Third-party vendor">Third-party vendor</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl size="small" fullWidth>
-                <InputLabel>Auto-renewal</InputLabel>
-                <Select label="Auto-renewal" value={filters.autoRenewal} onChange={updateFilter('autoRenewal')}>
-                  <MenuItem value="">All auto-renewal states</MenuItem>
-                  <MenuItem value="true">Enabled</MenuItem>
-                  <MenuItem value="false">Disabled</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl size="small" fullWidth>
-                <InputLabel>Health status</InputLabel>
-                <Select label="Health status" value={filters.status} onChange={updateFilter('status')}>
-                  <MenuItem value="">All statuses</MenuItem>
-                  <MenuItem value="healthy">Healthy</MenuItem>
-                  <MenuItem value="warning">Warning</MenuItem>
-                  <MenuItem value="critical">Critical</MenuItem>
-                  <MenuItem value="error">Error</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControl size="small" fullWidth>
-                <InputLabel>Domain expiry</InputLabel>
-                <Select label="Domain expiry" value={filters.expiry} onChange={updateFilter('expiry')}>
-                  <MenuItem value="">All expiry dates</MenuItem>
-                  <MenuItem value="expired">Expired</MenuItem>
-                  <MenuItem value="7">Within 7 days</MenuItem>
-                  <MenuItem value="30">Within 30 days</MenuItem>
-                  <MenuItem value="90">Within 90 days</MenuItem>
-                </Select>
-              </FormControl>
-              <Button variant="text" onClick={clearFilters} sx={{ minWidth: 110 }}>Clear filters</Button>
-            </Stack>
+            <Collapse in={filtersOpen} unmountOnExit>
+              <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 2, pt: 1 }}>
+                <Autocomplete options={domainOptions.clientCompanies} openOnFocus value={filters.clientCompany || null} onChange={(_event, value) => updateFilterValue('clientCompany', value || '')} renderInput={(params) => <TextField {...params} size="small" label="Client / Company" placeholder="All clients" />} fullWidth />
+                <Autocomplete options={domainOptions.registrars} openOnFocus value={filters.registrar || null} onChange={(_event, value) => updateFilterValue('registrar', value || '')} renderInput={(params) => <TextField {...params} size="small" label="Registrar" placeholder="All registrars" />} fullWidth />
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Maintenance</InputLabel>
+                  <Select label="Maintenance" value={filters.maintenanceResponsibility} onChange={updateFilter('maintenanceResponsibility')}>
+                    <MenuItem value="">All maintenance types</MenuItem><MenuItem value="Us">Us</MenuItem><MenuItem value="Client">Client</MenuItem><MenuItem value="Shared">Shared</MenuItem><MenuItem value="Third-party vendor">Third-party vendor</MenuItem>
+                  </Select>
+                </FormControl>
+              </Stack>
+              <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 2, pt: 2 }}>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Auto-renewal</InputLabel>
+                  <Select label="Auto-renewal" value={filters.autoRenewal} onChange={updateFilter('autoRenewal')}><MenuItem value="">All auto-renewal states</MenuItem><MenuItem value="true">Enabled</MenuItem><MenuItem value="false">Disabled</MenuItem></Select>
+                </FormControl>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Health status</InputLabel>
+                  <Select label="Health status" value={filters.status} onChange={updateFilter('status')}><MenuItem value="">All statuses</MenuItem><MenuItem value="healthy">Healthy</MenuItem><MenuItem value="warning">Warning</MenuItem><MenuItem value="critical">Critical</MenuItem><MenuItem value="error">Error</MenuItem></Select>
+                </FormControl>
+                <FormControl size="small" fullWidth>
+                  <InputLabel>Domain expiry</InputLabel>
+                  <Select label="Domain expiry" value={filters.expiry} onChange={updateFilter('expiry')}><MenuItem value="">All expiry dates</MenuItem><MenuItem value="expired">Expired</MenuItem><MenuItem value="7">Within 7 days</MenuItem><MenuItem value="30">Within 30 days</MenuItem><MenuItem value="90">Within 90 days</MenuItem></Select>
+                </FormControl>
+              </Stack>
+            </Collapse>
           </Stack>
           <Divider />
           <TableContainer sx={{ overflowX: 'auto' }}>
-            <Table sx={{ minWidth: 1100 }}>
+            <Table sx={{ minWidth: 760 }}>
               <TableHead>
                 <TableRow>
-                  {['Domain', 'Client / Company', 'Maintenance', 'Registrar', 'Webspace', 'SSL expiry', 'Domain expiry', 'Auto-renew', 'Status', 'Actions'].map((header) => (
+                  {['Domain', 'Client / Company', 'Webspace', 'SSL expiry', 'Domain expiry', 'Status', 'Actions'].map((header) => (
                     <TableCell key={header}>{header}</TableCell>
                   ))}
                 </TableRow>
@@ -577,7 +566,7 @@ export default function DomainsPage() {
               <TableBody>
                 {loading && (
                   <TableRow>
-                    <TableCell colSpan={10}>
+                    <TableCell colSpan={7}>
                       <Stack sx={{ alignItems: 'center', py: 5 }}>
                         <CircularProgress size={28} />
                       </Stack>
@@ -586,7 +575,7 @@ export default function DomainsPage() {
                 )}
                 {!loading && !domains.length && (
                   <TableRow>
-                    <TableCell colSpan={10}>
+                    <TableCell colSpan={7}>
                       <Box sx={{ py: 5, textAlign: 'center' }}>
                         <Typography color="text.secondary">No domains monitored yet. Add domains above to begin.</Typography>
                       </Box>
@@ -594,7 +583,7 @@ export default function DomainsPage() {
                   </TableRow>
                 )}
                 {domains.map((item) => (
-                  <TableRow hover key={item.domain}>
+                  <TableRow hover key={item.domain} onClick={() => openDomainDetails(item)} sx={{ cursor: 'pointer' }}>
                     <TableCell>
                       <Stack direction="row" sx={{ gap: 1, alignItems: 'center' }}>
                         <GlobalOutlined />
@@ -602,8 +591,6 @@ export default function DomainsPage() {
                       </Stack>
                     </TableCell>
                     <TableCell>{item.management?.clientCompany || '—'}</TableCell>
-                    <TableCell>{item.management?.maintenanceResponsibility || '—'}</TableCell>
-                    <TableCell>{item.management?.registrar || '—'}</TableCell>
                     <TableCell>{item.management?.webspace === null || item.management?.webspace === undefined || item.management?.webspace === '' ? '—' : `${item.management.webspace} GB`}</TableCell>
                     <TableCell>
                       <Typography variant="body2" color={getDaysColor(item.ssl?.daysRemaining)}>
@@ -615,7 +602,6 @@ export default function DomainsPage() {
                         {formatRemainingDays(item.registration?.daysRemaining)}
                       </Typography>
                     </TableCell>
-                    <TableCell>{item.management?.autoRenewal ? 'Yes' : 'No'}</TableCell>
                     <TableCell>
                       <Tooltip title={item.statusMessage || ''}>
                         <Chip size="small" variant="combined" color={statusColors[item.status] || 'secondary'} label={item.status} />
@@ -623,7 +609,7 @@ export default function DomainsPage() {
                     </TableCell>
                     <TableCell>
                       <Tooltip title="Actions">
-                        <IconButton size="small" onClick={(event) => openActionMenu(event, item.domain)} aria-label={`Actions for ${item.domain}`}>
+                        <IconButton size="small" onClick={(event) => { event.stopPropagation(); openActionMenu(event, item.domain); }} aria-label={`Actions for ${item.domain}`}>
                           <MoreOutlined />
                         </IconButton>
                       </Tooltip>
@@ -645,12 +631,25 @@ export default function DomainsPage() {
           />
         </MainCard>
       </Grid>
+      <DomainImportDialog open={importOpen} onClose={() => setImportOpen(false)} onImported={async () => { await Promise.all([loadDomains(0), loadDomainOptions()]); }} />
+      <Menu anchorEl={utilityMenuAnchor} open={Boolean(utilityMenuAnchor)} onClose={closeUtilityMenu}>
+        <MenuItem onClick={() => { handleScanNow(); closeUtilityMenu(); }} disabled={scanning}>
+          <ReloadOutlined style={{ marginRight: 8 }} />
+          Scan now
+        </MenuItem>
+        <MenuItem onClick={() => { handleExport(); closeUtilityMenu(); }} disabled={exporting || loading}>
+          Export CSV
+        </MenuItem>
+        <MenuItem onClick={() => { handleRefresh(); closeUtilityMenu(); }} disabled={loading || scanning}>
+          Refresh list
+        </MenuItem>
+      </Menu>
       <Menu anchorEl={actionMenuAnchor} open={Boolean(actionMenuAnchor)} onClose={closeActionMenu}>
         <MenuItem onClick={() => { if (actionDomain) openEditDrawer(actionDomain); closeActionMenu(); }}>
           <EditOutlined style={{ marginRight: 8 }} />
           Edit domain
         </MenuItem>
-        <MenuItem onClick={() => { if (actionDomain) setSelected(actionDomain); setDetailTab(0); closeActionMenu(); }}>
+        <MenuItem onClick={() => { if (actionDomain) openDomainDetails(actionDomain); closeActionMenu(); }}>
           <EyeOutlined style={{ marginRight: 8 }} />
           View details
         </MenuItem>
@@ -722,6 +721,7 @@ export default function DomainsPage() {
           </Stack>
           <Divider />
           <Stack sx={{ gap: 2, overflowY: 'auto', pr: 0.5 }}>
+            <Typography variant="subtitle2" color="text.secondary">Domain information</Typography>
             <TextField
               fullWidth
               label="Domain Name"
@@ -760,11 +760,21 @@ export default function DomainsPage() {
             )}
             <TextField label="DNS Managed By" value={managementForm.dnsManagedBy} onChange={(event) => setManagementForm((current) => ({ ...current, dnsManagedBy: event.target.value }))} placeholder="e.g. Cloudflare, Us, Client" fullWidth />
             <Alert severity="info">Registrar, registration date, and expiry date are fetched automatically when the domain registry provides them. Your selected registrar is used as a fallback.</Alert>
+            <Divider />
+            <Typography variant="subtitle2" color="text.secondary">Hosting and security</Typography>
             <FormControlLabel
               control={<Switch checked={managementForm.autoRenewal} onChange={(event) => setManagementForm((current) => ({ ...current, autoRenewal: event.target.checked }))} />}
               label="Auto-Renewal Enabled"
             />
             <TextField label="Webspace (GB)" type="number" value={managementForm.webspace} onChange={(event) => setManagementForm((current) => ({ ...current, webspace: event.target.value }))} inputProps={{ min: 0, step: '0.01' }} InputProps={{ endAdornment: <InputAdornment position="end">GB</InputAdornment> }} fullWidth />
+            <TextField label="Webspace start date" type="date" value={managementForm.webspaceStartDate} onChange={(event) => setManagementForm((current) => ({ ...current, webspaceStartDate: event.target.value }))} InputLabelProps={{ shrink: true }} helperText="The date this webspace was added or activated" fullWidth />
+            <FormControlLabel
+              control={<Switch checked={managementForm.sslEnabled} onChange={(event) => setManagementForm((current) => ({ ...current, sslEnabled: event.target.checked, sslEnabledDate: event.target.checked ? (current.sslEnabledDate || new Date().toISOString().slice(0, 10)) : '' }))} />}
+              label="SSL Enabled"
+            />
+            {managementForm.sslEnabled && <TextField label="SSL enabled date" type="date" value={managementForm.sslEnabledDate} onChange={(event) => setManagementForm((current) => ({ ...current, sslEnabledDate: event.target.value }))} InputLabelProps={{ shrink: true }} helperText="The date SSL was enabled for this domain" fullWidth />}
+            <Divider />
+            <Typography variant="subtitle2" color="text.secondary">Notes</Typography>
             <TextField label="Notes" multiline minRows={3} value={managementForm.notes} onChange={(event) => setManagementForm((current) => ({ ...current, notes: event.target.value }))} fullWidth />
           </Stack>
           <Box sx={{ mt: 'auto' }}>

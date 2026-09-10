@@ -1,6 +1,7 @@
 // assets
 import {
   AppstoreOutlined,
+  BarChartOutlined,
   DashboardOutlined,
   FileTextOutlined,
   HddOutlined,
@@ -15,6 +16,7 @@ import {
 const icons = {
   DashboardOutlined,
   AppstoreOutlined,
+  BarChartOutlined,
   UserAddOutlined,
   FileTextOutlined,
   HddOutlined,
@@ -39,6 +41,15 @@ const dashboard = {
       icon: icons.DashboardOutlined,
       breadcrumbs: false,
       permission: 'dashboard.view'
+    },
+    {
+      id: 'domain-dashboard',
+      title: 'Domain Dashboard',
+      type: 'item',
+      url: '/domain-dashboard',
+      icon: icons.BarChartOutlined,
+      breadcrumbs: false,
+      permission: 'domain-dashboard.view'
     },
     {
       id: 'domains',

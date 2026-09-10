@@ -21,6 +21,7 @@ const PERMISSIONS = [
   ['logs.view', 'View application logs'],
   ['server.view', 'View server information'],
   ['activity.view', 'View activity history'],
+  ['domain-dashboard.view', 'View the domain quick-scan dashboard'],
   ['domains.view', 'View monitored domains'],
   ['domains.manage', 'Add, scan, and remove monitored domains'],
   ['users.manage', 'Create, disable, and assign users'],

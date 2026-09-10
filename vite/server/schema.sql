@@ -109,10 +109,16 @@ CREATE TABLE IF NOT EXISTS monitored_domains (
   ssl JSONB NOT NULL DEFAULT '{}'::jsonb,
   http JSONB NOT NULL DEFAULT '{}'::jsonb,
   registration JSONB NOT NULL DEFAULT '{}'::jsonb,
+  webspace_start_date DATE,
+  ssl_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  ssl_enabled_date DATE,
   scan_enabled BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS registration JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_start_date DATE;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS ssl_enabled BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS ssl_enabled_date DATE;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS scan_enabled BOOLEAN NOT NULL DEFAULT TRUE;
 
 CREATE INDEX IF NOT EXISTS monitored_domains_status_idx ON monitored_domains(status);
