@@ -45,14 +45,53 @@ CREATE TABLE IF NOT EXISTS monitored_domains (
   ssl JSONB NOT NULL DEFAULT '{}'::jsonb,
   http JSONB NOT NULL DEFAULT '{}'::jsonb,
   registration JSONB NOT NULL DEFAULT '{}'::jsonb,
+  client_company TEXT,
+  maintenance_responsibility TEXT,
+  registrar TEXT,
+  dns_managed_by TEXT,
+  registration_date DATE,
+  expiry_date DATE,
+  auto_renewal BOOLEAN NOT NULL DEFAULT FALSE,
+  primary_contact TEXT,
+  webspace_gb NUMERIC(12, 2),
+  notes TEXT,
   scan_enabled BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS registration JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS client_company TEXT;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS maintenance_responsibility TEXT;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS registrar TEXT;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS dns_managed_by TEXT;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS registration_date DATE;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS expiry_date DATE;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS auto_renewal BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS primary_contact TEXT;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_gb NUMERIC(12, 2);
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS notes TEXT;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS scan_enabled BOOLEAN NOT NULL DEFAULT TRUE;
+
+ALTER TABLE monitored_domains DROP COLUMN IF EXISTS management;
+ALTER TABLE monitored_domains DROP COLUMN IF EXISTS hosting_provider;
+ALTER TABLE monitored_domains DROP COLUMN IF EXISTS domain_owner;
+ALTER TABLE monitored_domains DROP COLUMN IF EXISTS technical_responsibility;
+ALTER TABLE monitored_domains DROP COLUMN IF EXISTS billing_responsibility;
+ALTER TABLE monitored_domains DROP COLUMN IF EXISTS renewal_cost;
+ALTER TABLE monitored_domains DROP COLUMN IF EXISTS renewal_status;
+ALTER TABLE monitored_domains DROP COLUMN IF EXISTS internal_owner;
+ALTER TABLE monitored_domains DROP COLUMN IF EXISTS domain_status;
+
+UPDATE monitored_domains
+SET registrar = NULLIF(BTRIM(regexp_replace(registration->>'registrar', '^.*(d/b/a|doing business as)\\s+', '', 'i')), '')
+WHERE (registrar IS NULL OR BTRIM(registrar) = '')
+  AND jsonb_typeof(registration) = 'object'
+  AND NULLIF(BTRIM(registration->>'registrar'), '') IS NOT NULL;
 
 CREATE INDEX IF NOT EXISTS monitored_domains_status_idx ON monitored_domains(status);
 CREATE INDEX IF NOT EXISTS monitored_domains_scanned_at_idx ON monitored_domains(scanned_at DESC);
+CREATE INDEX IF NOT EXISTS monitored_domains_client_company_idx ON monitored_domains(client_company);
+CREATE INDEX IF NOT EXISTS monitored_domains_maintenance_idx ON monitored_domains(maintenance_responsibility);
+CREATE INDEX IF NOT EXISTS monitored_domains_expiry_date_idx ON monitored_domains(expiry_date);
 `;
 const MIME_TYPES = {
   '.css': 'text/css; charset=utf-8',
@@ -163,14 +202,175 @@ async function deactivateManagedApplication(name) {
   await auth.pool.query('UPDATE managed_applications SET is_active = FALSE, updated_at = NOW() WHERE name = $1', [String(name)]);
 }
 
-async function readMonitoredDomains() {
-  const result = await auth.pool.query(`
-    SELECT domain, added_at AS "addedAt", scanned_at AS "scannedAt", status,
-      status_message AS "statusMessage", dns, ssl, http, registration, scan_enabled AS "scanEnabled"
+const MONITORED_DOMAIN_SELECT = `
+  SELECT domain, added_at AS "addedAt", scanned_at AS "scannedAt", status,
+    status_message AS "statusMessage", dns, ssl, http, registration,
+    client_company AS "clientCompany",
+    maintenance_responsibility AS "maintenanceResponsibility",
+    registrar,
+    dns_managed_by AS "dnsManagedBy",
+    TO_CHAR(registration_date, 'YYYY-MM-DD') AS "registrationDate",
+    TO_CHAR(expiry_date, 'YYYY-MM-DD') AS "expiryDate",
+    auto_renewal AS "autoRenewal", primary_contact AS "primaryContact",
+    webspace_gb AS webspace,
+    notes,
+    scan_enabled AS "scanEnabled"
+  FROM monitored_domains
+`;
+
+function mapMonitoredDomain(row) {
+  return {
+    domain: row.domain,
+    addedAt: row.addedAt,
+    scannedAt: row.scannedAt,
+    status: row.status,
+    statusMessage: row.statusMessage,
+    dns: row.dns || {},
+    ssl: row.ssl || {},
+    http: row.http || {},
+    registration: row.registration || {},
+    management: {
+      clientCompany: row.clientCompany,
+      maintenanceResponsibility: row.maintenanceResponsibility,
+      registrar: row.registrar,
+      dnsManagedBy: row.dnsManagedBy,
+      registrationDate: row.registrationDate,
+      expiryDate: row.expiryDate,
+      autoRenewal: row.autoRenewal,
+      primaryContact: row.primaryContact,
+      webspace: row.webspace,
+      notes: row.notes
+    },
+    scanEnabled: row.scanEnabled
+  };
+}
+
+function buildDomainFilterQuery(filters = {}) {
+  const clauses = [];
+  const params = [];
+  const addParam = (value) => {
+    params.push(value);
+    return `$${params.length}`;
+  };
+  const search = String(filters.search || '').trim();
+  if (search) {
+    const parameter = addParam(`%${search}%`);
+    clauses.push(`(domain ILIKE ${parameter} OR client_company ILIKE ${parameter} OR registrar ILIKE ${parameter} OR primary_contact ILIKE ${parameter})`);
+  }
+  if (filters.clientCompany) clauses.push(`client_company ILIKE ${addParam(`%${String(filters.clientCompany).trim()}%`)}`);
+  if (filters.maintenanceResponsibility) clauses.push(`maintenance_responsibility = ${addParam(String(filters.maintenanceResponsibility))}`);
+  if (filters.registrar) clauses.push(`registrar ILIKE ${addParam(`%${String(filters.registrar).trim()}%`)}`);
+  if (filters.autoRenewal === 'true' || filters.autoRenewal === 'false') clauses.push(`auto_renewal = ${addParam(filters.autoRenewal === 'true')}`);
+  if (['healthy', 'warning', 'critical', 'error'].includes(filters.status)) clauses.push(`status = ${addParam(filters.status)}`);
+  if (filters.expiry === 'expired') clauses.push('expiry_date < CURRENT_DATE');
+  if (['7', '30', '90'].includes(String(filters.expiry || ''))) {
+    const days = addParam(Number(filters.expiry));
+    clauses.push(`expiry_date BETWEEN CURRENT_DATE AND CURRENT_DATE + (${days} * INTERVAL '1 day')`);
+  }
+  return { where: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
+}
+
+async function queryMonitoredDomains(filters = {}, pagination = null) {
+  const { where, params } = buildDomainFilterQuery(filters);
+  const summaryResult = await auth.pool.query(`
+    SELECT COUNT(*)::int AS total,
+      COUNT(*) FILTER (WHERE status = 'healthy')::int AS healthy,
+      COUNT(*) FILTER (WHERE status IN ('warning', 'critical'))::int AS attention,
+      COUNT(*) FILTER (WHERE status = 'error')::int AS errors
     FROM monitored_domains
-    ORDER BY domain
-  `);
-  return result.rows.map((row) => ({ ...row, dns: row.dns || {}, ssl: row.ssl || {}, http: row.http || {}, registration: row.registration || {} }));
+    ${where}
+  `, params);
+  const summary = summaryResult.rows[0] || { total: 0, healthy: 0, attention: 0, errors: 0 };
+  const queryParams = [...params];
+  let query = `${MONITORED_DOMAIN_SELECT} ${where}
+    ORDER BY
+      CASE WHEN scan_enabled IS FALSE THEN 1 ELSE 0 END,
+      CASE status
+        WHEN 'critical' THEN 1
+        WHEN 'warning' THEN 2
+        WHEN 'error' THEN 3
+        WHEN 'healthy' THEN 4
+        ELSE 5
+      END,
+      domain`;
+  let page = 1;
+  let pageSize = Number(summary.total) || 1;
+  let totalPages = 1;
+  if (pagination) {
+    const requestedPage = Math.max(1, Number(pagination.page) || 1);
+    pageSize = Math.min(100, Math.max(1, Number(pagination.pageSize) || 25));
+    totalPages = Math.max(1, Math.ceil((Number(summary.total) || 0) / pageSize));
+    page = Math.min(requestedPage, totalPages);
+    queryParams.push(pageSize, (page - 1) * pageSize);
+    query += ` LIMIT $${queryParams.length - 1} OFFSET $${queryParams.length}`;
+  }
+  const result = await auth.pool.query(query, queryParams);
+  const total = Number(summary.total) || 0;
+  return {
+    domains: result.rows.map(mapMonitoredDomain),
+    total,
+    page,
+    pageSize,
+    totalPages,
+    summary: { total, healthy: Number(summary.healthy) || 0, attention: Number(summary.attention) || 0, errors: Number(summary.errors) || 0 }
+  };
+}
+
+async function readMonitoredDomains() {
+  return (await queryMonitoredDomains()).domains;
+}
+
+function normalizeDomainManagement(value) {
+  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {};
+  const text = (key) => {
+    const value = source[key];
+    return value === undefined || value === null || String(value).trim() === '' ? null : String(value).trim();
+  };
+  const date = (key) => /^\d{4}-\d{2}-\d{2}$/.test(String(source[key] || '')) ? String(source[key]) : null;
+  const rawWebspace = String(source.webspace || '').trim();
+  const webspace = Number(rawWebspace);
+  const registrar = shortenRegistrarName(text('registrar'));
+  return {
+    clientCompany: text('clientCompany'),
+    maintenanceResponsibility: text('maintenanceResponsibility'),
+    registrar,
+    dnsManagedBy: text('dnsManagedBy'),
+    registrationDate: date('registrationDate'),
+    expiryDate: date('expiryDate'),
+    autoRenewal: source.autoRenewal === true,
+    primaryContact: text('primaryContact'),
+    webspace: rawWebspace && Number.isFinite(webspace) && webspace >= 0 ? webspace : null,
+    notes: text('notes')
+  };
+}
+
+function shortenRegistrarName(value) {
+  const name = value ? String(value).trim() : '';
+  const brandMatch = name.match(/\b(?:d\/b\/a|doing business as)\s+(.+)$/i);
+  return brandMatch?.[1]?.trim() || name || null;
+}
+
+function toDateOnly(value) {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function getRdapEntityName(entity) {
+  const vcard = Array.isArray(entity?.vcardArray?.[1]) ? entity.vcardArray[1] : [];
+  const field = vcard.find((item) => ['fn', 'org'].includes(String(item?.[0] || '').toLowerCase()));
+  const value = field?.[3];
+  return Array.isArray(value) ? value.filter(Boolean).join(' ') : value ? String(value) : null;
+}
+
+function applyOnlineRegistrationDates(value, registration = {}) {
+  const management = normalizeDomainManagement(value);
+  return {
+    ...management,
+    registrar: shortenRegistrarName(registration.registrar) || management.registrar || null,
+    registrationDate: registration.registrationDate || value?.registrationDate || null,
+    expiryDate: registration.expiresAt ? toDateOnly(registration.expiresAt) : value?.expiryDate || null
+  };
 }
 
 async function saveDomainResults(results) {
@@ -178,9 +378,13 @@ async function saveDomainResults(results) {
   try {
     await client.query('BEGIN');
     for (const item of results) {
+      const management = normalizeDomainManagement(item.management);
       await client.query(`
-        INSERT INTO monitored_domains (domain, added_at, scanned_at, status, status_message, dns, ssl, http, registration, scan_enabled)
-        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, TRUE)
+        INSERT INTO monitored_domains (domain, added_at, scanned_at, status, status_message, dns, ssl, http, registration,
+          client_company, maintenance_responsibility, registrar, dns_managed_by,
+          registration_date, expiry_date, auto_renewal, primary_contact, webspace_gb, notes, scan_enabled)
+        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb,
+          $10, $11, $12, $13, $14::date, $15::date, $16, $17, $18, $19, TRUE)
         ON CONFLICT (domain) DO UPDATE SET
           scanned_at = EXCLUDED.scanned_at,
           status = EXCLUDED.status,
@@ -188,8 +392,19 @@ async function saveDomainResults(results) {
           dns = EXCLUDED.dns,
           ssl = EXCLUDED.ssl,
           http = EXCLUDED.http,
-          registration = EXCLUDED.registration
+          registration = EXCLUDED.registration,
+          client_company = EXCLUDED.client_company,
+          maintenance_responsibility = EXCLUDED.maintenance_responsibility,
+          registrar = EXCLUDED.registrar,
+          dns_managed_by = EXCLUDED.dns_managed_by,
+          registration_date = EXCLUDED.registration_date,
+          expiry_date = EXCLUDED.expiry_date,
+          auto_renewal = EXCLUDED.auto_renewal,
+          primary_contact = EXCLUDED.primary_contact,
+          webspace_gb = EXCLUDED.webspace_gb,
+          notes = EXCLUDED.notes
       `, [
+        // Keep management fields relational in PostgreSQL; the nested object is only the API shape.
         item.domain,
         item.addedAt || item.scannedAt || new Date().toISOString(),
         item.scannedAt || new Date().toISOString(),
@@ -198,7 +413,17 @@ async function saveDomainResults(results) {
         JSON.stringify(item.dns || {}),
         JSON.stringify(item.ssl || {}),
         JSON.stringify(item.http || {}),
-        JSON.stringify(item.registration || {})
+        JSON.stringify(item.registration || {}),
+        management.clientCompany,
+        management.maintenanceResponsibility,
+        management.registrar,
+        management.dnsManagedBy,
+        management.registrationDate,
+        management.expiryDate,
+        management.autoRenewal,
+        management.primaryContact,
+        management.webspace,
+        management.notes
       ]);
     }
     await client.query('COMMIT');
@@ -383,7 +608,7 @@ function requestJson(urlValue, redirects = 0) {
 
 async function getDomainRegistration(hostname) {
   if (hostname === 'localhost' || /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) || !hostname.includes('.')) {
-    return { available: false, expiresAt: null, daysRemaining: null, error: 'Registration expiry is unavailable for this host' };
+    return { available: false, registrar: null, registrationDate: null, expiresAt: null, daysRemaining: null, error: 'Registration expiry is unavailable for this host' };
   }
 
   try {
@@ -394,17 +619,21 @@ async function getDomainRegistration(hostname) {
     const tld = hostname.split('.').at(-1).toLowerCase();
     const service = rdapBootstrapCache.services.find(([tlds]) => tlds.includes(tld));
     const baseUrl = service?.[1]?.find((value) => String(value).startsWith('https://'));
-    if (!baseUrl) return { available: false, expiresAt: null, daysRemaining: null, error: `No secure RDAP service is registered for .${tld}` };
+    if (!baseUrl) return { available: false, registrar: null, registrationDate: null, expiresAt: null, daysRemaining: null, error: `No secure RDAP service is registered for .${tld}` };
     const endpoint = new URL(`domain/${encodeURIComponent(hostname)}`, baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`).toString();
     const rdap = await requestJson(endpoint);
+    const registrarEntity = rdap.entities?.find((entity) => (entity.roles || []).map((role) => String(role).toLowerCase()).includes('registrar'));
+    const registrar = shortenRegistrarName(getRdapEntityName(registrarEntity));
+    const registrationEvent = rdap.events?.find((event) => String(event.eventAction || '').toLowerCase() === 'registration');
     const expirationEvent = rdap.events?.find((event) => String(event.eventAction || '').toLowerCase() === 'expiration');
+    const registrationDate = registrationEvent?.eventDate ? toDateOnly(registrationEvent.eventDate) : null;
     const expiresAt = expirationEvent?.eventDate ? new Date(expirationEvent.eventDate) : null;
     if (!expiresAt || Number.isNaN(expiresAt.valueOf())) {
-      return { available: false, expiresAt: null, daysRemaining: null, error: 'Registration expiry was not provided by RDAP' };
+      return { available: false, registrar, registrationDate, expiresAt: null, daysRemaining: null, error: 'Registration expiry was not provided by RDAP' };
     }
-    return { available: true, expiresAt: expiresAt.toISOString(), daysRemaining: Math.ceil((expiresAt.getTime() - Date.now()) / 86400000) };
+    return { available: true, registrar, registrationDate, expiresAt: expiresAt.toISOString(), daysRemaining: Math.ceil((expiresAt.getTime() - Date.now()) / 86400000) };
   } catch (error) {
-    return { available: false, expiresAt: null, daysRemaining: null, error: error.message };
+    return { available: false, registrar: null, registrationDate: null, expiresAt: null, daysRemaining: null, error: error.message };
   }
 }
 
@@ -450,7 +679,7 @@ async function scanDomain(hostname, settings = {}) {
   return { domain: hostname, scannedAt, status, statusMessage, dns: dnsDetails, ssl, http: httpDetails, registration };
 }
 
-async function scanAndStoreDomains(values) {
+async function scanAndStoreDomains(values, management = null) {
   const candidates = Array.isArray(values) ? values : String(values || '').split(/[\s,;]+/);
   const domains = [...new Set(candidates.map(normalizeDomain).filter(Boolean))];
   if (!domains.length) throw new Error('Enter at least one valid domain name');
@@ -460,11 +689,19 @@ async function scanAndStoreDomains(values) {
   const enabledDomains = domains.filter((domain) => !savedDomains.has(domain) || savedDomains.get(domain).scanEnabled !== false);
   if (!enabledDomains.length) return [];
   const settings = await auth.getSettings();
+  const normalizedManagement = management === null ? null : normalizeDomainManagement(management);
   const results = await Promise.all(enabledDomains.map(async (domain) => {
+    const savedManagement = savedDomains.get(domain)?.management;
+    const managementForDomain = normalizedManagement ? {
+      ...normalizedManagement,
+      registrationDate: normalizedManagement.registrationDate || savedManagement?.registrationDate || null,
+      expiryDate: normalizedManagement.expiryDate || savedManagement?.expiryDate || null
+    } : savedManagement;
     try {
-      return await scanDomain(domain, settings);
+      const result = await scanDomain(domain, settings);
+      return { ...result, management: applyOnlineRegistrationDates(managementForDomain, result.registration) };
     } catch (error) {
-      return { domain, scannedAt: new Date().toISOString(), status: 'error', statusMessage: error.message, dns: { ipv4: [], ipv6: [], cname: [], mx: [], ns: [], txt: [], caa: [] }, ssl: { valid: false, error: error.message }, http: { reachable: false, error: error.message }, registration: { available: false, error: error.message } };
+      return { domain, scannedAt: new Date().toISOString(), status: 'error', statusMessage: error.message, dns: { ipv4: [], ipv6: [], cname: [], mx: [], ns: [], txt: [], caa: [] }, ssl: { valid: false, error: error.message }, http: { reachable: false, error: error.message }, registration: { available: false, error: error.message }, management: applyOnlineRegistrationDates(managementForDomain) };
     }
   }));
 
@@ -481,7 +718,12 @@ async function scanSavedDomains(settings = null) {
     const saved = (await readMonitoredDomains()).filter((item) => item.scanEnabled !== false);
     if (!saved.length) return [];
     const results = await Promise.all(saved.map(async (item) => {
-      try { return await scanDomain(item.domain, activeSettings); } catch (error) { return { ...item, scannedAt: new Date().toISOString(), status: 'error', statusMessage: error.message }; }
+      try {
+        const result = await scanDomain(item.domain, activeSettings);
+        return { ...result, management: applyOnlineRegistrationDates(item.management, result.registration) };
+      } catch (error) {
+        return { ...item, scannedAt: new Date().toISOString(), status: 'error', statusMessage: error.message, management: applyOnlineRegistrationDates(item.management) };
+      }
     }));
     await saveDomainResults(results);
     await recordAudit({ action: 'Scheduled domain scan', result: 'success', details: `Scanned ${results.length} monitored domain${results.length === 1 ? '' : 's'}` });
@@ -596,18 +838,98 @@ async function domainSchedulerTick() {
 }
 domainSchedulerTick.lastRunKey = '';
 
+function domainFiltersFromSearchParams(searchParams) {
+  return {
+    search: searchParams.get('search') || '',
+    clientCompany: searchParams.get('clientCompany') || '',
+    maintenanceResponsibility: searchParams.get('maintenanceResponsibility') || '',
+    registrar: searchParams.get('registrar') || '',
+    autoRenewal: searchParams.get('autoRenewal') || '',
+    status: searchParams.get('status') || '',
+    expiry: searchParams.get('expiry') || ''
+  };
+}
+
+function csvCell(value) {
+  const text = value === null || value === undefined ? '' : String(value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function monitoredDomainsCsv(domains) {
+  const headers = ['Domain', 'Client / Company', 'Maintenance Responsibility', 'Registrar', 'DNS Managed By', 'Auto-Renewal', 'Primary Contact', 'Webspace (GB)', 'Registration Date', 'Expiry Date', 'SSL Days Remaining', 'Domain Days Remaining', 'IP Addresses', 'Health Status', 'Last Scanned', 'Notes'];
+  const rows = domains.map((item) => [
+    item.domain,
+    item.management.clientCompany,
+    item.management.maintenanceResponsibility,
+    item.management.registrar,
+    item.management.dnsManagedBy,
+    item.management.autoRenewal ? 'Yes' : 'No',
+    item.management.primaryContact,
+    item.management.webspace,
+    item.management.registrationDate,
+    item.management.expiryDate,
+    item.ssl?.daysRemaining,
+    item.registration?.daysRemaining,
+    [...(item.dns?.ipv4 || []), ...(item.dns?.ipv6 || [])].join(', '),
+    item.status,
+    item.scannedAt,
+    item.management.notes
+  ]);
+  return [headers, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n');
+}
+
 async function handleDomainApi(request, response, url) {
   await initializeDomainStorage();
 
+  if (request.method === 'GET' && url.pathname === '/api/domains/export') {
+    const { domains } = await queryMonitoredDomains(domainFiltersFromSearchParams(url.searchParams));
+    response.writeHead(200, {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="domain-monitor-export.csv"',
+      'Cache-Control': 'no-store'
+    });
+    response.end(`\uFEFF${monitoredDomainsCsv(domains)}`);
+    return true;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/domains/options') {
+    const result = await auth.pool.query(`
+      SELECT ARRAY(
+        SELECT client_company
+        FROM (
+          SELECT MIN(BTRIM(client_company)) AS client_company
+          FROM monitored_domains
+          WHERE client_company IS NOT NULL AND BTRIM(client_company) <> ''
+          GROUP BY LOWER(BTRIM(client_company))
+        ) AS client_values
+        ORDER BY LOWER(client_company)
+      ) AS "clientCompanies",
+      ARRAY(
+        SELECT registrar
+        FROM (
+          SELECT MIN(BTRIM(registrar)) AS registrar
+          FROM monitored_domains
+          WHERE registrar IS NOT NULL AND BTRIM(registrar) <> ''
+          GROUP BY LOWER(BTRIM(registrar))
+        ) AS registrar_values
+        ORDER BY LOWER(registrar)
+      ) AS registrars
+    `);
+    sendJson(response, 200, { options: result.rows[0] || { clientCompanies: [], registrars: [] } });
+    return true;
+  }
+
   if (request.method === 'GET' && url.pathname === '/api/domains') {
-    sendJson(response, 200, { domains: await readMonitoredDomains() });
+    const filters = domainFiltersFromSearchParams(url.searchParams);
+    const page = await queryMonitoredDomains(filters, { page: url.searchParams.get('page'), pageSize: url.searchParams.get('pageSize') });
+    sendJson(response, 200, { domains: page.domains, pagination: { page: page.page, pageSize: page.pageSize, total: page.total, totalPages: page.totalPages }, summary: page.summary });
     return true;
   }
 
   if (request.method === 'POST' && url.pathname === '/api/domains/scan') {
     if (isRateLimited(request, 'domain-scan', 10, 5 * 60 * 1000)) { sendJson(response, 429, { error: 'Too many scans. Try again later.' }); return true; }
     const payload = await readJsonBody(request);
-    sendJson(response, 200, { domains: await scanAndStoreDomains(payload.domains || payload.domain || '') });
+    sendJson(response, 200, { domains: await scanAndStoreDomains(payload.domains || payload.domain || '', payload.management) });
     return true;
   }
 
@@ -615,8 +937,25 @@ async function handleDomainApi(request, response, url) {
   if (encodedDomain && request.method === 'PATCH') {
     const domain = normalizeDomain(decodeURIComponent(encodedDomain));
     const payload = await readJsonBody(request);
-    if (!domain || typeof payload.scanEnabled !== 'boolean') { sendJson(response, 400, { error: 'A valid domain and scanEnabled boolean are required' }); return true; }
-    await auth.pool.query('UPDATE monitored_domains SET scan_enabled = $1 WHERE domain = $2', [payload.scanEnabled, domain]);
+    const hasScanUpdate = typeof payload.scanEnabled === 'boolean';
+    const hasManagementUpdate = payload.management && typeof payload.management === 'object' && !Array.isArray(payload.management);
+    if (!domain || (!hasScanUpdate && !hasManagementUpdate)) { sendJson(response, 400, { error: 'A valid domain and update payload are required' }); return true; }
+    if (hasScanUpdate) await auth.pool.query('UPDATE monitored_domains SET scan_enabled = $1 WHERE domain = $2', [payload.scanEnabled, domain]);
+    if (hasManagementUpdate) {
+      const management = normalizeDomainManagement(payload.management);
+      await auth.pool.query(`
+        UPDATE monitored_domains
+        SET client_company = $1,
+            maintenance_responsibility = $2,
+            registrar = $3,
+            dns_managed_by = $4,
+            auto_renewal = $5,
+            primary_contact = $6,
+            webspace_gb = $7,
+            notes = $8
+        WHERE domain = $9
+      `, [management.clientCompany, management.maintenanceResponsibility, management.registrar, management.dnsManagedBy, management.autoRenewal, management.primaryContact, management.webspace, management.notes, domain]);
+    }
     sendJson(response, 200, { domains: await readMonitoredDomains() });
     return true;
   }

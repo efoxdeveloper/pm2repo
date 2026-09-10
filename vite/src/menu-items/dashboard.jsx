@@ -46,6 +46,7 @@ const dashboard = {
       type: 'item',
       url: '/domains',
       icon: icons.GlobalOutlined,
+      breadcrumbs: false,
       permission: 'domains.view'
     },
     {

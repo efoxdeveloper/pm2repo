@@ -7,12 +7,34 @@ async function request(path = '', options) {
   return payload;
 }
 
-export async function getDomains() {
-  return request();
+function queryString(params = {}) {
+  const search = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') search.set(key, String(value));
+  });
+  const value = search.toString();
+  return value ? `?${value}` : '';
 }
 
-export async function scanDomains(domains) {
-  return request('/scan', { method: 'POST', body: JSON.stringify({ domains }) });
+export async function getDomains(params = {}) {
+  return request(queryString(params));
+}
+
+export async function getDomainOptions() {
+  return request('/options');
+}
+
+export async function exportDomains(params = {}) {
+  const response = await fetch(`${API_ROOT}/export${queryString(params)}`, { headers: { 'Content-Type': 'application/json' } });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(payload.error || 'Unable to export domains');
+  }
+  return response.blob();
+}
+
+export async function scanDomains(domains, management) {
+  return request('/scan', { method: 'POST', body: JSON.stringify({ domains, management }) });
 }
 
 export async function deleteDomain(domain) {
@@ -21,4 +43,8 @@ export async function deleteDomain(domain) {
 
 export async function updateDomainScan(domain, scanEnabled) {
   return request(`/${encodeURIComponent(domain)}`, { method: 'PATCH', body: JSON.stringify({ scanEnabled }) });
+}
+
+export async function updateDomainManagement(domain, management) {
+  return request(`/${encodeURIComponent(domain)}`, { method: 'PATCH', body: JSON.stringify({ management }) });
 }

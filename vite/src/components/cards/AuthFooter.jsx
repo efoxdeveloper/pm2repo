@@ -18,7 +18,7 @@ export default function AuthFooter() {
         <Typography variant="subtitle2" sx={{ color: 'secondary.main' }}>
           © Made with love by Team{' '}
           <Link href="https://codedthemes.com/" target="_blank" underline="hover">
-            CodedThemes
+            Efox Technologies
           </Link>
         </Typography>
 

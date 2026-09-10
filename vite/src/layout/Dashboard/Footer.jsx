@@ -13,7 +13,7 @@ export default function Footer() {
       <Typography variant="caption">
         &copy; All rights reserved{' '}
         <Link href="https://codedthemes.com/" target="_blank" underline="hover">
-          CodedThemes
+          Efox Technologies
         </Link>
       </Typography>
       <Stack direction="row" sx={{ gap: 1.5, alignItems: 'center', justifyContent: 'space-between' }}>
