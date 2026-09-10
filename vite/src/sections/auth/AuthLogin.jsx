@@ -62,8 +62,11 @@ export default function AuthLogin({ isDemo = false }) {
         onSubmit={async (values, { setStatus, setSubmitting }) => {
           try {
             setStatus(null);
-            await login({ username: values.username, password: values.password });
-            navigate('/dashboard', { replace: true });
+            const authenticatedUser = await login({ username: values.username, password: values.password });
+            const permissions = authenticatedUser?.permissions || [];
+            const isDomainDashboardUser = permissions.includes('domain-dashboard.view') && !permissions.includes('*');
+
+            navigate(isDomainDashboardUser ? '/domain-dashboard' : '/dashboard', { replace: true });
           } catch (error) {
             setStatus(error.message);
           } finally {
