@@ -92,6 +92,12 @@ function formatRemainingDays(value) {
   return value === null || value === undefined ? '—' : `${value} days`;
 }
 
+function formatWebspace(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const number = Number(value);
+  return Number.isFinite(number) ? `${Number.isInteger(number) ? number : number.toFixed(2)} GB` : '—';
+}
+
 function getDaysColor(value) {
   if (value === null || value === undefined) return 'text.secondary';
   if (value <= 7) return 'error.main';
@@ -581,7 +587,7 @@ export default function DomainsPage() {
             <Table sx={{ minWidth: 760 }}>
               <TableHead>
                 <TableRow>
-                  {['Domain', 'Client / Company', 'Allocated webspace', 'SSL expiry', 'Domain expiry', 'Status', 'Actions'].map((header) => (
+                  {['Domain', 'Client / Company', 'Used / allocated webspace', 'SSL expiry', 'Domain expiry', 'Status', 'Actions'].map((header) => (
                     <TableCell key={header}>{header}</TableCell>
                   ))}
                 </TableRow>
@@ -614,7 +620,7 @@ export default function DomainsPage() {
                       </Stack>
                     </TableCell>
                     <TableCell>{item.management?.clientCompany || '—'}</TableCell>
-                    <TableCell><Stack><Typography variant="body2">{item.management?.allocatedWebspace === null || item.management?.allocatedWebspace === undefined || item.management?.allocatedWebspace === '' ? '—' : `${item.management.allocatedWebspace} GB`}</Typography>{item.management?.usedWebspace !== null && item.management?.usedWebspace !== undefined && <Typography variant="caption" color="text.secondary">Used: {Number(item.management.usedWebspace).toFixed(2)} GB</Typography>}</Stack></TableCell>
+                    <TableCell>{item.management?.usedWebspace === null || item.management?.usedWebspace === undefined ? `— / ${formatWebspace(item.management?.allocatedWebspace)}` : `${formatWebspace(item.management.usedWebspace)} / ${formatWebspace(item.management?.allocatedWebspace)}`}</TableCell>
                     <TableCell>
                       <Typography variant="body2" color={getDaysColor(item.ssl?.daysRemaining)}>
                         {formatRemainingDays(item.ssl?.daysRemaining)}

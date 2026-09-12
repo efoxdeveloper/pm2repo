@@ -52,6 +52,12 @@ function formatDate(value) {
   return Number.isNaN(date.valueOf()) ? 'Not scanned' : date.toLocaleString();
 }
 
+function formatWebspace(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const number = Number(value);
+  return Number.isFinite(number) ? `${Number.isInteger(number) ? number : number.toFixed(2)} GB` : '—';
+}
+
 function daysColor(value) {
   if (value === null || value === undefined || !Number.isFinite(Number(value))) return 'text.secondary';
   if (Number(value) <= 7) return 'error.main';
@@ -221,10 +227,10 @@ export default function DomainDashboardPage() {
         <MainCard title="Recent domain checks" content={false}>
           <TableContainer>
             <Table size="small">
-              <TableHead><TableRow><TableCell>Domain</TableCell><TableCell>Last checked</TableCell><TableCell>Status</TableCell><TableCell>Allocated / used webspace</TableCell><TableCell>SSL</TableCell></TableRow></TableHead>
+              <TableHead><TableRow><TableCell>Domain</TableCell><TableCell>Last checked</TableCell><TableCell>Status</TableCell><TableCell>Used / allocated webspace</TableCell><TableCell>SSL</TableCell></TableRow></TableHead>
               <TableBody>
                 {!domains.recent.length && <TableRow><TableCell colSpan={5}><Typography color="text.secondary" sx={{ py: 2 }}>No domain checks available.</Typography></TableCell></TableRow>}
-                {domains.recent.map((item) => <TableRow key={item.domain} hover><TableCell><Typography variant="subtitle2">{item.domain}</Typography></TableCell><TableCell>{formatDate(item.scannedAt)}</TableCell><TableCell><Chip size="small" variant="combined" color={statusColor(item.status)} label={item.status || 'unknown'} /></TableCell><TableCell>{item.management?.allocatedWebspace === null || item.management?.allocatedWebspace === undefined ? 'Not allocated' : <Stack><Typography variant="body2">Allocated: {item.management.allocatedWebspace} GB</Typography><Typography variant="caption" color="text.secondary">Used: {item.management.usedWebspace === null || item.management.usedWebspace === undefined ? 'Not checked' : `${Number(item.management.usedWebspace).toFixed(2)} GB`}</Typography></Stack>}</TableCell><TableCell><ExpiryValue value={item.ssl?.daysRemaining} /></TableCell></TableRow>)}
+                {domains.recent.map((item) => <TableRow key={item.domain} hover><TableCell><Typography variant="subtitle2">{item.domain}</Typography></TableCell><TableCell>{formatDate(item.scannedAt)}</TableCell><TableCell><Chip size="small" variant="combined" color={statusColor(item.status)} label={item.status || 'unknown'} /></TableCell><TableCell>{item.management?.usedWebspace === null || item.management?.usedWebspace === undefined ? `— / ${formatWebspace(item.management?.allocatedWebspace)}` : `${formatWebspace(item.management.usedWebspace)} / ${formatWebspace(item.management?.allocatedWebspace)}`}</TableCell><TableCell><ExpiryValue value={item.ssl?.daysRemaining} /></TableCell></TableRow>)}
               </TableBody>
             </Table>
           </TableContainer>
