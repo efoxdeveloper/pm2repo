@@ -1540,13 +1540,34 @@ async function handleDomainApi(request, response, url) {
   if (request.method === 'POST' && url.pathname === '/api/domains/webspace/directories') {
     const payload = await readJsonBody(request);
     const domain = normalizeDomain(payload.domain);
-    const directory = normalizeWebspaceDirectory(payload);
+    const entries = Array.isArray(payload.directories)
+      ? payload.directories
+      : String(payload.directory || '').split(',').map((directory) => directory.trim()).filter(Boolean);
+    if (!entries.length) { sendJson(response, 400, { error: 'At least one webspace directory is required' }); return true; }
+    if (entries.length > 100) { sendJson(response, 400, { error: 'Add up to 100 webspace directories at a time' }); return true; }
+    const directories = entries.map((entry, index) => {
+      const value = typeof entry === 'string' ? { ...payload, directory: entry, label: entries.length > 1 ? '' : payload.label } : { ...payload, ...entry };
+      if (!value.label && entries.length > 1) value.label = path.basename(String(value.directory || '').trim()) || `Directory ${index + 1}`;
+      return normalizeWebspaceDirectory(value);
+    });
     if (!domain) { sendJson(response, 400, { error: 'A valid monitored domain is required' }); return true; }
-    await auth.pool.query(`
-      INSERT INTO domain_webspace_directories (domain, label, directory, allocated_gb, scan_enabled)
-      VALUES ($1, $2, $3, $4, $5)
-      ON CONFLICT (domain, directory) DO UPDATE SET label = EXCLUDED.label, allocated_gb = EXCLUDED.allocated_gb, scan_enabled = EXCLUDED.scan_enabled, updated_at = NOW()
-    `, [domain, directory.label, path.resolve(directory.directory), directory.allocatedWebspace, payload.scanEnabled !== false]);
+    const client = await auth.pool.connect();
+    try {
+      await client.query('BEGIN');
+      for (const directory of directories) {
+        await client.query(`
+          INSERT INTO domain_webspace_directories (domain, label, directory, allocated_gb, scan_enabled)
+          VALUES ($1, $2, $3, $4, $5)
+          ON CONFLICT (domain, directory) DO UPDATE SET label = EXCLUDED.label, allocated_gb = EXCLUDED.allocated_gb, scan_enabled = EXCLUDED.scan_enabled, updated_at = NOW()
+        `, [domain, directory.label, path.resolve(directory.directory), directory.allocatedWebspace, payload.scanEnabled !== false]);
+      }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
     await updateWebspaceAggregate(domain);
     sendJson(response, 201, { directories: await readWebspaceDirectories(domain) });
     return true;
