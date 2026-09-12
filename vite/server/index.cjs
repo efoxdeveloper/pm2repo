@@ -388,6 +388,19 @@ function mapWebspaceDirectory(row) {
   };
 }
 
+function webspaceUsageStatus(item, settings = {}) {
+  if (item.checkStatus === 'error' || item.status === 'error') return 'error';
+  const allocated = Number(item.allocatedWebspace);
+  const used = Number(item.usedWebspace);
+  if (!Number.isFinite(allocated) || allocated <= 0 || !Number.isFinite(used)) return 'unknown';
+  const percent = (used / allocated) * 100;
+  const warning = settingNumber(settings, 'webspaceWarningPercent', 80, 1, 1000);
+  const critical = Math.max(warning, settingNumber(settings, 'webspaceCriticalPercent', 95, 1, 1000));
+  if (percent >= critical) return 'critical';
+  if (percent >= warning) return 'warning';
+  return 'healthy';
+}
+
 async function readWebspaceDirectories(domain = null) {
   const params = domain ? [domain] : [];
   const result = await auth.pool.query(`${WEBSPACE_DIRECTORY_SELECT}${domain ? ' WHERE domain = $1' : ''} ORDER BY domain, label, directory`, params);
@@ -1506,7 +1519,8 @@ async function handleDomainApi(request, response, url) {
   }
 
   if (request.method === 'GET' && url.pathname === '/api/domains/webspace') {
-    const directories = await readWebspaceDirectories(url.searchParams.get('domain') || null);
+    const settings = await auth.getSettings();
+    const directories = (await readWebspaceDirectories(url.searchParams.get('domain') || null)).map((item) => ({ ...item, usageStatus: webspaceUsageStatus(item, settings) }));
     const tracked = directories.filter((item) => Number.isFinite(Number(item.allocatedWebspace)) && Number(item.allocatedWebspace) > 0 && Number.isFinite(Number(item.usedWebspace)));
     sendJson(response, 200, {
       directories,
@@ -1515,7 +1529,9 @@ async function handleDomainApi(request, response, url) {
         tracked: tracked.length,
         totalAllocatedWebspace: tracked.reduce((total, item) => total + Number(item.allocatedWebspace), 0),
         totalUsedWebspace: tracked.reduce((total, item) => total + Number(item.usedWebspace), 0),
-        errors: directories.filter((item) => item.checkStatus === 'error').length
+        errors: directories.filter((item) => item.checkStatus === 'error').length,
+        warnings: directories.filter((item) => item.usageStatus === 'warning').length,
+        critical: directories.filter((item) => item.usageStatus === 'critical').length
       }
     });
     return true;
