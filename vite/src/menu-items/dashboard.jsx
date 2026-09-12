@@ -43,22 +43,18 @@ const dashboard = {
       permission: 'dashboard.view'
     },
     {
-      id: 'domain-dashboard',
-      title: 'Website & Hosting Dashboard',
-      type: 'item',
-      url: '/domain-dashboard',
-      icon: icons.BarChartOutlined,
-      breadcrumbs: false,
-      permission: 'domain-dashboard.view'
-    },
-    {
-      id: 'domains',
+      id: 'website-hosting',
       title: 'Website & Hosting',
-      type: 'item',
-      url: '/domains',
+      type: 'collapse',
       icon: icons.GlobalOutlined,
       breadcrumbs: false,
-      permission: 'domains.view'
+      permissionAny: ['domain-dashboard.view', 'domains.view'],
+      children: [
+        { id: 'domain-dashboard', title: 'Overview', type: 'item', url: '/domain-dashboard', icon: icons.BarChartOutlined, permission: 'domain-dashboard.view', breadcrumbs: false },
+        { id: 'domains', title: 'Domains', type: 'item', url: '/domains', icon: icons.GlobalOutlined, permission: 'domains.view' },
+        { id: 'ssl-certificates', title: 'SSL Certificates', type: 'item', url: '/ssl', icon: icons.GlobalOutlined, permission: 'domains.view' },
+        { id: 'webspace', title: 'Webspace', type: 'item', url: '/webspace', icon: icons.HddOutlined, permission: 'domains.view' }
+      ]
     },
     {
       id: 'applications',

@@ -210,3 +210,5 @@ corepack yarn start
 Open `http://localhost:3000/free/`. Copy `.env.example` to `.env.local` and set the PostgreSQL and bootstrap administrator values before starting the API. The API creates its required tables on startup. For production, run `corepack yarn build` and use `corepack yarn start:production`; set `AUTH_COOKIE_SECURE=true` behind HTTPS.
 
 The Super Admin can create custom roles, assign permissions, create users, and assign individual PM2 applications. A non-Super Admin can only see, inspect, operate, deploy, and view logs for applications assigned to that user.
+
+Website & Hosting is organized into independent monitoring areas: Overview, Domains (primary registration expiry), SSL Certificates (primary and subdomain TLS), and Webspace (multiple directory inventories with used/allocated quotas). Domain, SSL, and webspace notifications are sent as separate email reports.

@@ -45,6 +45,38 @@ export async function checkWebspace(domains) {
   return request('/webspace/check', { method: 'POST', body: JSON.stringify(domains ? { domains } : {}) });
 }
 
+export async function getSslCertificates(domain) {
+  return request(`/ssl${queryString(domain ? { domain } : {})}`);
+}
+
+export async function saveSslCertificate(payload, id) {
+  return request(id ? `/ssl/${id}` : '/ssl', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+}
+
+export async function deleteSslCertificate(id) {
+  return request(`/ssl/${id}`, { method: 'DELETE' });
+}
+
+export async function checkSslCertificates(ids) {
+  return request('/ssl/check', { method: 'POST', body: JSON.stringify(ids?.length ? { ids } : {}) });
+}
+
+export async function getWebspaceDirectories(domain) {
+  return request(`/webspace${queryString(domain ? { domain } : {})}`);
+}
+
+export async function saveWebspaceDirectory(payload, id) {
+  return request(id ? `/webspace/directories/${id}` : '/webspace/directories', { method: id ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+}
+
+export async function deleteWebspaceDirectory(id) {
+  return request(`/webspace/directories/${id}`, { method: 'DELETE' });
+}
+
+export async function checkWebspaceDirectories(ids) {
+  return request('/webspace/check', { method: 'POST', body: JSON.stringify(ids?.length ? { ids } : {}) });
+}
+
 export async function importDomains(rows) {
   return request('/import', { method: 'POST', body: JSON.stringify({ rows }) });
 }

@@ -16,6 +16,8 @@ const Activity = Loadable(lazy(() => import('pages/activity')));
 const Settings = Loadable(lazy(() => import('pages/settings')));
 const Domains = Loadable(lazy(() => import('pages/domains')));
 const DomainDashboard = Loadable(lazy(() => import('pages/domain-dashboard')));
+const SslCertificates = Loadable(lazy(() => import('pages/ssl')));
+const Webspace = Loadable(lazy(() => import('pages/webspace')));
 const Access = Loadable(lazy(() => import('pages/access')));
 
 // ==============================|| MAIN ROUTING ||============================== //
@@ -46,6 +48,8 @@ const MainRoutes = {
     { path: 'settings', element: <Settings /> },
     { path: 'domain-dashboard', element: <DomainDashboard /> },
     { path: 'domains', element: <Domains /> },
+    { path: 'ssl', element: <SslCertificates /> },
+    { path: 'webspace', element: <Webspace /> },
     { path: 'access', element: <Access /> },
     {
       path: 'dashboard/default',

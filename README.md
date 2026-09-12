@@ -28,7 +28,7 @@ When the development UI and API are on different origins, set `PM2_MANAGER_ORIGI
 
 ## Domain monitoring
 
-Use the **Domain Monitor** item in the dashboard to paste one or more domains and scan their DNS records, IPv4/IPv6 addresses, HTTPS response, and TLS certificate details including expiry date, remaining days, issuer, subject, protocol, and fingerprint. Results are stored in PostgreSQL and automatically rescanned on the configured schedule.
+Use the **Website & Hosting** section in the dashboard for separate monitoring jobs: **Overview** provides the operational summary, **Domains** tracks primary-domain registration expiry, **SSL Certificates** tracks primary domains and subdomains, and **Webspace** tracks multiple project directories with used/allocated quotas. Results are stored in PostgreSQL and checked by independent scheduled jobs with separate domain-expiry, SSL-expiry, and webspace alert emails.
 
 ## Authentication and PostgreSQL
 

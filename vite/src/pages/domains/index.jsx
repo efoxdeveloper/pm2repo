@@ -48,7 +48,7 @@ import SearchOutlined from '@ant-design/icons/SearchOutlined';
 import UploadOutlined from '@ant-design/icons/UploadOutlined';
 import MainCard from 'components/MainCard';
 import DomainImportDialog from 'components/domains/DomainImportDialog';
-import { checkWebspace, deleteDomain, exportDomains, getDomainOptions, getDomains, scanDomains, updateDomainManagement, updateDomainScan } from 'api/domains';
+import { deleteDomain, exportDomains, getDomainOptions, getDomains, scanDomains, updateDomainManagement, updateDomainScan } from 'api/domains';
 
 const statusColors = { healthy: 'success', warning: 'warning', critical: 'error', error: 'error' };
 const popularRegistrars = ['GoDaddy', 'Namecheap', 'Cloudflare Registrar', 'Google Domains', 'Hostinger', 'Bluehost', 'PublicDomainRegistry.com'];
@@ -62,11 +62,6 @@ function createDefaultManagement() {
     dnsManagedBy: '',
     autoRenewal: false,
     primaryContact: '',
-    allocatedWebspace: '',
-    webspaceStartDate: '',
-    projectDirectory: '',
-    sslEnabled: false,
-    sslEnabledDate: '',
     notes: ''
   };
 }
@@ -77,12 +72,6 @@ function formatDate(value) {
   return Number.isNaN(date.valueOf()) ? '—' : date.toLocaleString();
 }
 
-function formatDateOnly(value) {
-  if (!value) return '—';
-  const date = new Date(`${value}T00:00:00`);
-  return Number.isNaN(date.valueOf()) ? '—' : date.toLocaleDateString();
-}
-
 function formatDays(value) {
   if (value === null || value === undefined) return '—';
   return value < 0 ? `${Math.abs(value)} days overdue` : `${value} days`;
@@ -90,12 +79,6 @@ function formatDays(value) {
 
 function formatRemainingDays(value) {
   return value === null || value === undefined ? '—' : `${value} days`;
-}
-
-function formatWebspace(value) {
-  if (value === null || value === undefined || value === '') return '—';
-  const number = Number(value);
-  return Number.isFinite(number) ? `${Number.isInteger(number) ? number : number.toFixed(2)} GB` : '—';
 }
 
 function getDaysColor(value) {
@@ -128,62 +111,11 @@ function ManagementDetails({ management }) {
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Registrar">{management.registrar}</DetailRow></Grid>
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="DNS managed by">{management.dnsManagedBy}</DetailRow></Grid>
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Auto-renewal">{management.autoRenewal ? 'Yes' : 'No'}</DetailRow></Grid>
-        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Allocated webspace">{management.allocatedWebspace === null || management.allocatedWebspace === undefined || management.allocatedWebspace === '' ? '—' : `${management.allocatedWebspace} GB`}</DetailRow></Grid>
-        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Allocated webspace since">{formatDateOnly(management.webspaceStartDate)}</DetailRow></Grid>
-        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Project directory">{management.projectDirectory}</DetailRow></Grid>
-        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Used webspace">{management.usedWebspace === null || management.usedWebspace === undefined ? 'Not checked' : `${Number(management.usedWebspace).toFixed(2)} GB`}</DetailRow></Grid>
-        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Webspace last checked">{formatDate(management.webspaceCheckedAt)}</DetailRow></Grid>
-        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Webspace check status"><Chip size="small" variant="combined" color={statusColors[management.webspaceCheckStatus] || 'default'} label={management.webspaceCheckStatus || 'unknown'} /></DetailRow></Grid>
-        {management.webspaceCheckError && <Grid size={12}><DetailRow label="Webspace check error">{management.webspaceCheckError}</DetailRow></Grid>}
-        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="SSL enabled">{management.sslEnabled ? 'Yes' : 'No'}</DetailRow></Grid>
-        {management.sslEnabled && <Grid size={{ xs: 12, md: 6 }}><DetailRow label="SSL enabled date">{formatDateOnly(management.sslEnabledDate)}</DetailRow></Grid>}
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Registration date">{management.registrationDate || 'Unavailable from registry'}</DetailRow></Grid>
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Expiry date">{management.expiryDate || 'Unavailable from registry'}</DetailRow></Grid>
         <Grid size={12}><DetailRow label="Notes">{management.notes}</DetailRow></Grid>
       </Grid>
     </MainCard>
-  );
-}
-
-function SecurityDetails({ domain }) {
-  const ssl = domain.ssl || {};
-  const http = domain.http || {};
-  const registration = domain.registration || {};
-  return (
-    <Grid container spacing={2}>
-      <Grid size={{ xs: 12, md: 6 }}>
-        <MainCard title="SSL certificate">
-          <DetailRow label="Subject">{ssl.subject?.CN || '—'}</DetailRow>
-          <DetailRow label="Issuer">{ssl.issuer?.O || ssl.issuer?.CN}</DetailRow>
-          <DetailRow label="Valid from">{formatDate(ssl.validFrom)}</DetailRow>
-          <DetailRow label="Expires">{formatDate(ssl.validTo)}</DetailRow>
-          <DetailRow label="Remaining">{formatDays(ssl.daysRemaining)}</DetailRow>
-          <DetailRow label="TLS protocol">{ssl.protocol}</DetailRow>
-          <DetailRow label="Fingerprint">{ssl.fingerprint256}</DetailRow>
-          <DetailRow label="Browser trusted">{ssl.authorized === true ? 'Yes' : ssl.authorizationError || 'No'}</DetailRow>
-        </MainCard>
-      </Grid>
-      <Grid size={{ xs: 12, md: 6 }}>
-        <MainCard title="HTTPS endpoint">
-          <DetailRow label="Status">{http.statusCode ? `${http.statusCode} ${http.statusMessage || ''}` : http.error}</DetailRow>
-          <DetailRow label="Response time">{http.responseTime ? `${http.responseTime} ms` : '—'}</DetailRow>
-          <DetailRow label="Server">{http.headers?.server}</DetailRow>
-          <DetailRow label="Content type">{http.headers?.['content-type']}</DetailRow>
-          <DetailRow label="Redirect target">{http.headers?.location}</DetailRow>
-          <DetailRow label="Last scanned">{formatDate(domain.scannedAt)}</DetailRow>
-        </MainCard>
-      </Grid>
-      <Grid size={{ xs: 12, md: 6 }}>
-        <MainCard title="Domain registration">
-          <DetailRow label="Registrar">{registration.registrar}</DetailRow>
-          <DetailRow label="Registered">{registration.registrationDate || '—'}</DetailRow>
-          <DetailRow label="Expires">{formatDate(registration.expiresAt)}</DetailRow>
-          <DetailRow label="Remaining">{formatDays(registration.daysRemaining)}</DetailRow>
-          <DetailRow label="Source">RDAP</DetailRow>
-          <DetailRow label="Status">{registration.available === true ? 'Available' : registration.error}</DetailRow>
-        </MainCard>
-      </Grid>
-    </Grid>
   );
 }
 
@@ -210,8 +142,7 @@ function DomainDetails({ domain, tab }) {
   const http = domain.http || {};
   const ips = [...(domain.dns?.ipv4 || []), ...(domain.dns?.ipv6 || [])].join(', ');
   if (tab === 1) return <ManagementDetails management={management} />;
-  if (tab === 2) return <SecurityDetails domain={domain} />;
-  if (tab === 3) return <DnsDetails domain={domain} />;
+  if (tab === 2) return <DnsDetails domain={domain} />;
   return (
     <Grid container spacing={2}>
       <Grid size={{ xs: 12, md: 7 }}><ManagementDetails management={management} /></Grid>
@@ -256,7 +187,6 @@ export default function DomainsPage() {
   const [managementForm, setManagementForm] = useState(createDefaultManagement);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
-  const [checkingWebspace, setCheckingWebspace] = useState(false);
   const [savingManagement, setSavingManagement] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [updatingDomain, setUpdatingDomain] = useState('');
@@ -423,22 +353,6 @@ export default function DomainsPage() {
     }
   };
 
-  const handleCheckWebspace = async (domain) => {
-    try {
-      setCheckingWebspace(true);
-      const payload = await checkWebspace([domain]);
-      const updated = (payload.domains || []).find((item) => item.domain === domain);
-      if (updated) {
-        setDomains((current) => current.map((item) => (item.domain === domain ? updated : item)));
-        setSelected((current) => current?.domain === domain ? updated : current);
-      }
-    } catch (requestError) {
-      setError(requestError.message);
-    } finally {
-      setCheckingWebspace(false);
-    }
-  };
-
   const handleDelete = async (domain) => {
     if (!window.confirm(`Remove ${domain} from monitoring?`)) return;
     try {
@@ -477,8 +391,8 @@ export default function DomainsPage() {
       <Grid size={12}>
         <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 1, justifyContent: 'space-between', alignItems: { md: 'center' } }}>
           <Box>
-            <Typography variant="h5">Website &amp; Hosting</Typography>
-            <Typography variant="body2" color="text.secondary">Track domain health, hosting, and certificate status.</Typography>
+            <Typography variant="h5">Domains</Typography>
+            <Typography variant="body2" color="text.secondary">Track primary-domain registration, renewal, and registry expiry.</Typography>
           </Box>
           <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1 }}>
             <Button variant="outlined" startIcon={<UploadOutlined />} onClick={() => setImportOpen(true)} disabled={scanning}>
@@ -522,7 +436,7 @@ export default function DomainsPage() {
             <Box>
               <Typography variant="h4">{summary.healthy}</Typography>
               <Typography variant="body2" color="text.secondary">
-                Healthy certificates
+                Healthy domains
               </Typography>
             </Box>
           </Stack>
@@ -587,7 +501,7 @@ export default function DomainsPage() {
             <Table sx={{ minWidth: 760 }}>
               <TableHead>
                 <TableRow>
-                  {['Domain', 'Client / Company', 'Used / allocated webspace', 'SSL expiry', 'Domain expiry', 'Status', 'Actions'].map((header) => (
+                   {['Domain', 'Client / Company', 'Domain expiry', 'Status', 'Actions'].map((header) => (
                     <TableCell key={header}>{header}</TableCell>
                   ))}
                 </TableRow>
@@ -595,7 +509,7 @@ export default function DomainsPage() {
               <TableBody>
                 {loading && (
                   <TableRow>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={5}>
                       <Stack sx={{ alignItems: 'center', py: 5 }}>
                         <CircularProgress size={28} />
                       </Stack>
@@ -604,7 +518,7 @@ export default function DomainsPage() {
                 )}
                 {!loading && !domains.length && (
                   <TableRow>
-                    <TableCell colSpan={7}>
+                    <TableCell colSpan={5}>
                       <Box sx={{ py: 5, textAlign: 'center' }}>
                         <Typography color="text.secondary">No domains monitored yet. Add domains above to begin.</Typography>
                       </Box>
@@ -620,13 +534,7 @@ export default function DomainsPage() {
                       </Stack>
                     </TableCell>
                     <TableCell>{item.management?.clientCompany || '—'}</TableCell>
-                    <TableCell>{item.management?.usedWebspace === null || item.management?.usedWebspace === undefined ? `— / ${formatWebspace(item.management?.allocatedWebspace)}` : `${formatWebspace(item.management.usedWebspace)} / ${formatWebspace(item.management?.allocatedWebspace)}`}</TableCell>
-                    <TableCell>
-                      <Typography variant="body2" color={getDaysColor(item.ssl?.daysRemaining)}>
-                        {formatRemainingDays(item.ssl?.daysRemaining)}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
+                     <TableCell>
                       <Typography variant="body2" color={getDaysColor(item.registration?.daysRemaining)}>
                         {formatRemainingDays(item.registration?.daysRemaining)}
                       </Typography>
@@ -686,10 +594,6 @@ export default function DomainsPage() {
           <ReloadOutlined style={{ marginRight: 8 }} />
           Rescan domain
         </MenuItem>
-        <MenuItem onClick={() => { if (actionDomain) handleCheckWebspace(actionDomain.domain); closeActionMenu(); }} disabled={!actionDomain || checkingWebspace || !actionDomain.management?.projectDirectory}>
-          <ReloadOutlined style={{ marginRight: 8 }} />
-          Check webspace now
-        </MenuItem>
         <MenuItem onClick={() => { if (actionDomain) handleToggleScan(actionDomain.domain, actionDomain.scanEnabled === false); closeActionMenu(); }} disabled={!actionDomain || updatingDomain === actionDomain.domain}>
           <Switch size="small" checked={actionDomain?.scanEnabled !== false} sx={{ mr: 1 }} tabIndex={-1} />
           {actionDomain?.scanEnabled === false ? 'Enable scheduled scan' : 'Disable scheduled scan'}
@@ -734,8 +638,7 @@ export default function DomainsPage() {
         >
           <Tab label="Overview" />
           <Tab label="Management" />
-          <Tab label="SSL & HTTPS" />
-          <Tab label="DNS" />
+           <Tab label="DNS" />
         </Tabs>
         <DialogContent dividers sx={{ bgcolor: 'grey.50', overflowY: 'auto' }}>{selected && <DomainDetails domain={selected} tab={detailTab} />}</DialogContent>
       </Dialog>
@@ -794,19 +697,11 @@ export default function DomainsPage() {
             <TextField label="DNS Managed By" value={managementForm.dnsManagedBy} onChange={(event) => setManagementForm((current) => ({ ...current, dnsManagedBy: event.target.value }))} placeholder="e.g. Cloudflare, Us, Client" fullWidth />
             <Alert severity="info">Registrar, registration date, and expiry date are fetched automatically when the domain registry provides them. Your selected registrar is used as a fallback.</Alert>
             <Divider />
-            <Typography variant="subtitle2" color="text.secondary">Hosting and security</Typography>
+            <Typography variant="subtitle2" color="text.secondary">Domain settings</Typography>
             <FormControlLabel
               control={<Switch checked={managementForm.autoRenewal} onChange={(event) => setManagementForm((current) => ({ ...current, autoRenewal: event.target.checked }))} />}
               label="Auto-Renewal Enabled"
             />
-            <TextField label="Allocated webspace (GB)" type="number" value={managementForm.allocatedWebspace} onChange={(event) => setManagementForm((current) => ({ ...current, allocatedWebspace: event.target.value }))} inputProps={{ min: 0, step: '0.01' }} InputProps={{ endAdornment: <InputAdornment position="end">GB</InputAdornment> }} helperText="The hosting quota assigned to this domain" fullWidth />
-            <TextField label="Allocated webspace start date" type="date" value={managementForm.webspaceStartDate} onChange={(event) => setManagementForm((current) => ({ ...current, webspaceStartDate: event.target.value }))} InputLabelProps={{ shrink: true }} helperText="The date this webspace was added or activated" fullWidth />
-            <TextField label="Project directory" value={managementForm.projectDirectory} onChange={(event) => setManagementForm((current) => ({ ...current, projectDirectory: event.target.value }))} placeholder="D:\\sites\\example.com" helperText="The backend will calculate this directory's size in a separate scheduled job." fullWidth />
-            <FormControlLabel
-              control={<Switch checked={managementForm.sslEnabled} onChange={(event) => setManagementForm((current) => ({ ...current, sslEnabled: event.target.checked, sslEnabledDate: event.target.checked ? (current.sslEnabledDate || new Date().toISOString().slice(0, 10)) : '' }))} />}
-              label="SSL Enabled"
-            />
-            {managementForm.sslEnabled && <TextField label="SSL enabled date" type="date" value={managementForm.sslEnabledDate} onChange={(event) => setManagementForm((current) => ({ ...current, sslEnabledDate: event.target.value }))} InputLabelProps={{ shrink: true }} helperText="The date SSL was enabled for this domain" fullWidth />}
             <Divider />
             <Typography variant="subtitle2" color="text.secondary">Notes</Typography>
             <TextField label="Notes" multiline minRows={3} value={managementForm.notes} onChange={(event) => setManagementForm((current) => ({ ...current, notes: event.target.value }))} fullWidth />

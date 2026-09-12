@@ -7,6 +7,7 @@ import Box from '@mui/material/Box';
 
 // project import
 import NavItem from './NavItem';
+import NavCollapse from './NavCollapse';
 import { useGetMenuMaster } from 'api/menu';
 
 // ==============================|| NAVIGATION - LIST GROUP ||============================== //
@@ -19,6 +20,8 @@ export default function NavGroup({ item }) {
     switch (menuItem.type) {
       case 'item':
         return <NavItem key={menuItem.id} item={menuItem} level={1} />;
+      case 'collapse':
+        return <NavCollapse key={menuItem.id} item={menuItem} level={1} />;
       default:
         return (
           <Typography key={menuItem.id} variant="h6" sx={{ color: 'error.main', textAlign: 'center' }}>

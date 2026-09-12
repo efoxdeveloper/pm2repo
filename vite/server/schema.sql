@@ -135,3 +135,52 @@ ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS scan_enabled BOOLEAN NOT 
 
 CREATE INDEX IF NOT EXISTS monitored_domains_status_idx ON monitored_domains(status);
 CREATE INDEX IF NOT EXISTS monitored_domains_scanned_at_idx ON monitored_domains(scanned_at DESC);
+
+CREATE TABLE IF NOT EXISTS domain_ssl_hosts (
+  id BIGSERIAL PRIMARY KEY,
+  domain VARCHAR(253) NOT NULL REFERENCES monitored_domains(domain) ON DELETE CASCADE,
+  hostname VARCHAR(253) NOT NULL,
+  port INTEGER NOT NULL DEFAULT 443 CHECK (port BETWEEN 1 AND 65535),
+  ssl JSONB NOT NULL DEFAULT '{}'::jsonb,
+  http JSONB NOT NULL DEFAULT '{}'::jsonb,
+  dns JSONB NOT NULL DEFAULT '{}'::jsonb,
+  status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+  status_message TEXT NOT NULL DEFAULT '',
+  scanned_at TIMESTAMPTZ,
+  scan_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (domain, hostname, port)
+);
+
+CREATE TABLE IF NOT EXISTS domain_webspace_directories (
+  id BIGSERIAL PRIMARY KEY,
+  domain VARCHAR(253) NOT NULL REFERENCES monitored_domains(domain) ON DELETE CASCADE,
+  label VARCHAR(160) NOT NULL DEFAULT '',
+  directory TEXT NOT NULL,
+  allocated_gb NUMERIC(12, 2),
+  used_bytes BIGINT,
+  checked_at TIMESTAMPTZ,
+  check_status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+  check_error TEXT NOT NULL DEFAULT '',
+  scan_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (domain, directory)
+);
+
+CREATE INDEX IF NOT EXISTS domain_ssl_hosts_domain_idx ON domain_ssl_hosts(domain);
+CREATE INDEX IF NOT EXISTS domain_ssl_hosts_scanned_at_idx ON domain_ssl_hosts(scanned_at DESC);
+CREATE INDEX IF NOT EXISTS domain_webspace_directories_domain_idx ON domain_webspace_directories(domain);
+CREATE INDEX IF NOT EXISTS domain_webspace_directories_checked_at_idx ON domain_webspace_directories(checked_at DESC);
+
+INSERT INTO domain_ssl_hosts (domain, hostname, ssl, http, dns, status, status_message, scanned_at, scan_enabled)
+SELECT domain, domain, ssl, http, dns, status, status_message, scanned_at, scan_enabled
+FROM monitored_domains
+WHERE NOT EXISTS (SELECT 1 FROM domain_ssl_hosts hosts WHERE hosts.domain = monitored_domains.domain AND hosts.hostname = monitored_domains.domain AND hosts.port = 443);
+
+INSERT INTO domain_webspace_directories (domain, label, directory, allocated_gb)
+SELECT domain, 'Primary project directory', project_directory, webspace_gb
+FROM monitored_domains
+WHERE project_directory IS NOT NULL AND BTRIM(project_directory) <> ''
+  AND NOT EXISTS (SELECT 1 FROM domain_webspace_directories directories WHERE directories.domain = monitored_domains.domain AND directories.directory = monitored_domains.project_directory);
