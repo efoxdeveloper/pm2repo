@@ -48,7 +48,7 @@ import SearchOutlined from '@ant-design/icons/SearchOutlined';
 import UploadOutlined from '@ant-design/icons/UploadOutlined';
 import MainCard from 'components/MainCard';
 import DomainImportDialog from 'components/domains/DomainImportDialog';
-import { deleteDomain, exportDomains, getDomainOptions, getDomains, scanDomains, updateDomainManagement, updateDomainScan } from 'api/domains';
+import { checkWebspace, deleteDomain, exportDomains, getDomainOptions, getDomains, scanDomains, updateDomainManagement, updateDomainScan } from 'api/domains';
 
 const statusColors = { healthy: 'success', warning: 'warning', critical: 'error', error: 'error' };
 const popularRegistrars = ['GoDaddy', 'Namecheap', 'Cloudflare Registrar', 'Google Domains', 'Hostinger', 'Bluehost', 'PublicDomainRegistry.com'];
@@ -62,8 +62,9 @@ function createDefaultManagement() {
     dnsManagedBy: '',
     autoRenewal: false,
     primaryContact: '',
-    webspace: '',
+    allocatedWebspace: '',
     webspaceStartDate: '',
+    projectDirectory: '',
     sslEnabled: false,
     sslEnabledDate: '',
     notes: ''
@@ -121,8 +122,13 @@ function ManagementDetails({ management }) {
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Registrar">{management.registrar}</DetailRow></Grid>
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="DNS managed by">{management.dnsManagedBy}</DetailRow></Grid>
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Auto-renewal">{management.autoRenewal ? 'Yes' : 'No'}</DetailRow></Grid>
-        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Webspace">{management.webspace === null || management.webspace === undefined || management.webspace === '' ? '—' : `${management.webspace} GB`}</DetailRow></Grid>
-        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Webspace since">{formatDateOnly(management.webspaceStartDate)}</DetailRow></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Allocated webspace">{management.allocatedWebspace === null || management.allocatedWebspace === undefined || management.allocatedWebspace === '' ? '—' : `${management.allocatedWebspace} GB`}</DetailRow></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Allocated webspace since">{formatDateOnly(management.webspaceStartDate)}</DetailRow></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Project directory">{management.projectDirectory}</DetailRow></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Used webspace">{management.usedWebspace === null || management.usedWebspace === undefined ? 'Not checked' : `${Number(management.usedWebspace).toFixed(2)} GB`}</DetailRow></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Webspace last checked">{formatDate(management.webspaceCheckedAt)}</DetailRow></Grid>
+        <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Webspace check status"><Chip size="small" variant="combined" color={statusColors[management.webspaceCheckStatus] || 'default'} label={management.webspaceCheckStatus || 'unknown'} /></DetailRow></Grid>
+        {management.webspaceCheckError && <Grid size={12}><DetailRow label="Webspace check error">{management.webspaceCheckError}</DetailRow></Grid>}
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="SSL enabled">{management.sslEnabled ? 'Yes' : 'No'}</DetailRow></Grid>
         {management.sslEnabled && <Grid size={{ xs: 12, md: 6 }}><DetailRow label="SSL enabled date">{formatDateOnly(management.sslEnabledDate)}</DetailRow></Grid>}
         <Grid size={{ xs: 12, md: 6 }}><DetailRow label="Registration date">{management.registrationDate || 'Unavailable from registry'}</DetailRow></Grid>
@@ -244,6 +250,7 @@ export default function DomainsPage() {
   const [managementForm, setManagementForm] = useState(createDefaultManagement);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
+  const [checkingWebspace, setCheckingWebspace] = useState(false);
   const [savingManagement, setSavingManagement] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [updatingDomain, setUpdatingDomain] = useState('');
@@ -410,6 +417,22 @@ export default function DomainsPage() {
     }
   };
 
+  const handleCheckWebspace = async (domain) => {
+    try {
+      setCheckingWebspace(true);
+      const payload = await checkWebspace([domain]);
+      const updated = (payload.domains || []).find((item) => item.domain === domain);
+      if (updated) {
+        setDomains((current) => current.map((item) => (item.domain === domain ? updated : item)));
+        setSelected((current) => current?.domain === domain ? updated : current);
+      }
+    } catch (requestError) {
+      setError(requestError.message);
+    } finally {
+      setCheckingWebspace(false);
+    }
+  };
+
   const handleDelete = async (domain) => {
     if (!window.confirm(`Remove ${domain} from monitoring?`)) return;
     try {
@@ -448,7 +471,7 @@ export default function DomainsPage() {
       <Grid size={12}>
         <Stack direction={{ xs: 'column', md: 'row' }} sx={{ gap: 1, justifyContent: 'space-between', alignItems: { md: 'center' } }}>
           <Box>
-            <Typography variant="h5">Domain Monitor</Typography>
+            <Typography variant="h5">Website &amp; Hosting</Typography>
             <Typography variant="body2" color="text.secondary">Track domain health, hosting, and certificate status.</Typography>
           </Box>
           <Stack direction={{ xs: 'column', sm: 'row' }} sx={{ gap: 1 }}>
@@ -459,7 +482,7 @@ export default function DomainsPage() {
               Add Domain
             </Button>
             <Tooltip title="More actions">
-              <IconButton aria-label="More domain monitor actions" onClick={(event) => setUtilityMenuAnchor(event.currentTarget)}>
+              <IconButton aria-label="More website and hosting actions" onClick={(event) => setUtilityMenuAnchor(event.currentTarget)}>
                 <MoreOutlined />
               </IconButton>
             </Tooltip>
@@ -558,7 +581,7 @@ export default function DomainsPage() {
             <Table sx={{ minWidth: 760 }}>
               <TableHead>
                 <TableRow>
-                  {['Domain', 'Client / Company', 'Webspace', 'SSL expiry', 'Domain expiry', 'Status', 'Actions'].map((header) => (
+                  {['Domain', 'Client / Company', 'Allocated webspace', 'SSL expiry', 'Domain expiry', 'Status', 'Actions'].map((header) => (
                     <TableCell key={header}>{header}</TableCell>
                   ))}
                 </TableRow>
@@ -591,7 +614,7 @@ export default function DomainsPage() {
                       </Stack>
                     </TableCell>
                     <TableCell>{item.management?.clientCompany || '—'}</TableCell>
-                    <TableCell>{item.management?.webspace === null || item.management?.webspace === undefined || item.management?.webspace === '' ? '—' : `${item.management.webspace} GB`}</TableCell>
+                    <TableCell><Stack><Typography variant="body2">{item.management?.allocatedWebspace === null || item.management?.allocatedWebspace === undefined || item.management?.allocatedWebspace === '' ? '—' : `${item.management.allocatedWebspace} GB`}</Typography>{item.management?.usedWebspace !== null && item.management?.usedWebspace !== undefined && <Typography variant="caption" color="text.secondary">Used: {Number(item.management.usedWebspace).toFixed(2)} GB</Typography>}</Stack></TableCell>
                     <TableCell>
                       <Typography variant="body2" color={getDaysColor(item.ssl?.daysRemaining)}>
                         {formatRemainingDays(item.ssl?.daysRemaining)}
@@ -656,6 +679,10 @@ export default function DomainsPage() {
         <MenuItem onClick={() => { if (actionDomain) handleRescan(actionDomain.domain); closeActionMenu(); }} disabled={!actionDomain || scanning || actionDomain.scanEnabled === false}>
           <ReloadOutlined style={{ marginRight: 8 }} />
           Rescan domain
+        </MenuItem>
+        <MenuItem onClick={() => { if (actionDomain) handleCheckWebspace(actionDomain.domain); closeActionMenu(); }} disabled={!actionDomain || checkingWebspace || !actionDomain.management?.projectDirectory}>
+          <ReloadOutlined style={{ marginRight: 8 }} />
+          Check webspace now
         </MenuItem>
         <MenuItem onClick={() => { if (actionDomain) handleToggleScan(actionDomain.domain, actionDomain.scanEnabled === false); closeActionMenu(); }} disabled={!actionDomain || updatingDomain === actionDomain.domain}>
           <Switch size="small" checked={actionDomain?.scanEnabled !== false} sx={{ mr: 1 }} tabIndex={-1} />
@@ -766,8 +793,9 @@ export default function DomainsPage() {
               control={<Switch checked={managementForm.autoRenewal} onChange={(event) => setManagementForm((current) => ({ ...current, autoRenewal: event.target.checked }))} />}
               label="Auto-Renewal Enabled"
             />
-            <TextField label="Webspace (GB)" type="number" value={managementForm.webspace} onChange={(event) => setManagementForm((current) => ({ ...current, webspace: event.target.value }))} inputProps={{ min: 0, step: '0.01' }} InputProps={{ endAdornment: <InputAdornment position="end">GB</InputAdornment> }} fullWidth />
-            <TextField label="Webspace start date" type="date" value={managementForm.webspaceStartDate} onChange={(event) => setManagementForm((current) => ({ ...current, webspaceStartDate: event.target.value }))} InputLabelProps={{ shrink: true }} helperText="The date this webspace was added or activated" fullWidth />
+            <TextField label="Allocated webspace (GB)" type="number" value={managementForm.allocatedWebspace} onChange={(event) => setManagementForm((current) => ({ ...current, allocatedWebspace: event.target.value }))} inputProps={{ min: 0, step: '0.01' }} InputProps={{ endAdornment: <InputAdornment position="end">GB</InputAdornment> }} helperText="The hosting quota assigned to this domain" fullWidth />
+            <TextField label="Allocated webspace start date" type="date" value={managementForm.webspaceStartDate} onChange={(event) => setManagementForm((current) => ({ ...current, webspaceStartDate: event.target.value }))} InputLabelProps={{ shrink: true }} helperText="The date this webspace was added or activated" fullWidth />
+            <TextField label="Project directory" value={managementForm.projectDirectory} onChange={(event) => setManagementForm((current) => ({ ...current, projectDirectory: event.target.value }))} placeholder="D:\\sites\\example.com" helperText="The backend will calculate this directory's size in a separate scheduled job." fullWidth />
             <FormControlLabel
               control={<Switch checked={managementForm.sslEnabled} onChange={(event) => setManagementForm((current) => ({ ...current, sslEnabled: event.target.checked, sslEnabledDate: event.target.checked ? (current.sslEnabledDate || new Date().toISOString().slice(0, 10)) : '' }))} />}
               label="SSL Enabled"

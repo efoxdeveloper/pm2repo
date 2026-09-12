@@ -55,6 +55,11 @@ CREATE TABLE IF NOT EXISTS monitored_domains (
   primary_contact TEXT,
   webspace_gb NUMERIC(12, 2),
   webspace_start_date DATE,
+  project_directory TEXT,
+  webspace_used_bytes BIGINT,
+  webspace_checked_at TIMESTAMPTZ,
+  webspace_check_status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+  webspace_check_error TEXT NOT NULL DEFAULT '',
   ssl_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   ssl_enabled_date DATE,
   notes TEXT,
@@ -72,6 +77,11 @@ ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS auto_renewal BOOLEAN NOT 
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS primary_contact TEXT;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_gb NUMERIC(12, 2);
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_start_date DATE;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS project_directory TEXT;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_used_bytes BIGINT;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_checked_at TIMESTAMPTZ;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_check_status VARCHAR(20) NOT NULL DEFAULT 'unknown';
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_check_error TEXT NOT NULL DEFAULT '';
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS ssl_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS ssl_enabled_date DATE;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS notes TEXT;
@@ -122,6 +132,7 @@ let applicationStorageInitialized;
 let domainStorageInitialized;
 let domainScanInProgress = false;
 let domainReportInProgress = false;
+let webspaceCheckInProgress = false;
 let rdapBootstrapCache = { expiresAt: 0, services: [] };
 const requestLimits = new Map();
 
@@ -218,8 +229,13 @@ const MONITORED_DOMAIN_SELECT = `
     TO_CHAR(registration_date, 'YYYY-MM-DD') AS "registrationDate",
     TO_CHAR(expiry_date, 'YYYY-MM-DD') AS "expiryDate",
     auto_renewal AS "autoRenewal", primary_contact AS "primaryContact",
-    webspace_gb AS webspace,
+    webspace_gb AS "allocatedWebspace",
     TO_CHAR(webspace_start_date, 'YYYY-MM-DD') AS "webspaceStartDate",
+    project_directory AS "projectDirectory",
+    webspace_used_bytes AS "webspaceUsedBytes",
+    webspace_checked_at AS "webspaceCheckedAt",
+    webspace_check_status AS "webspaceCheckStatus",
+    webspace_check_error AS "webspaceCheckError",
     ssl_enabled AS "sslEnabled",
     TO_CHAR(ssl_enabled_date, 'YYYY-MM-DD') AS "sslEnabledDate",
     notes,
@@ -247,8 +263,14 @@ function mapMonitoredDomain(row) {
       expiryDate: row.expiryDate,
       autoRenewal: row.autoRenewal,
       primaryContact: row.primaryContact,
-      webspace: row.webspace,
+      allocatedWebspace: row.allocatedWebspace,
       webspaceStartDate: row.webspaceStartDate,
+      projectDirectory: row.projectDirectory,
+      usedWebspaceBytes: row.webspaceUsedBytes === null || row.webspaceUsedBytes === undefined ? null : Number(row.webspaceUsedBytes),
+      usedWebspace: row.webspaceUsedBytes === null || row.webspaceUsedBytes === undefined ? null : Number(row.webspaceUsedBytes) / (1024 ** 3),
+      webspaceCheckedAt: row.webspaceCheckedAt,
+      webspaceCheckStatus: row.webspaceCheckStatus || 'unknown',
+      webspaceCheckError: row.webspaceCheckError || '',
       sslEnabled: row.sslEnabled,
       sslEnabledDate: row.sslEnabledDate,
       notes: row.notes
@@ -339,7 +361,7 @@ function normalizeDomainManagement(value) {
     return value === undefined || value === null || String(value).trim() === '' ? null : String(value).trim();
   };
   const date = (key) => normalizeDateOnly(source[key]);
-  const rawWebspace = String(source.webspace || '').trim();
+  const rawWebspace = String(source.allocatedWebspace ?? source.webspace ?? '').trim();
   const webspace = Number(rawWebspace);
   const registrar = shortenRegistrarName(text('registrar'));
   return {
@@ -351,8 +373,9 @@ function normalizeDomainManagement(value) {
     expiryDate: date('expiryDate'),
     autoRenewal: source.autoRenewal === true,
     primaryContact: text('primaryContact'),
-    webspace: rawWebspace && Number.isFinite(webspace) && webspace >= 0 ? webspace : null,
+    allocatedWebspace: rawWebspace && Number.isFinite(webspace) && webspace >= 0 ? webspace : null,
     webspaceStartDate: date('webspaceStartDate'),
+    projectDirectory: text('projectDirectory'),
     sslEnabled: source.sslEnabled === true,
     sslEnabledDate: source.sslEnabled === true ? date('sslEnabledDate') : null,
     notes: text('notes')
@@ -421,6 +444,75 @@ function applyOnlineRegistrationDates(value, registration = {}) {
   };
 }
 
+async function calculateDirectorySize(directory) {
+  const root = path.resolve(String(directory || '').trim());
+  if (!root || !fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new Error('Project directory does not exist or is not a directory');
+  let bytes = 0;
+  let files = 0;
+  const walk = async (current) => {
+    const entries = await fs.promises.readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const child = path.join(current, entry.name);
+      if (entry.isDirectory()) {
+        await walk(child);
+      } else if (entry.isFile()) {
+        const stats = await fs.promises.stat(child);
+        bytes += stats.size;
+        files += 1;
+      }
+    }
+  };
+  await walk(root);
+  return { directory: root, bytes, files };
+}
+
+async function checkDomainWebspace(item) {
+  const directory = item.management?.projectDirectory;
+  if (!directory) return { domain: item.domain, skipped: true };
+  try {
+    const result = await calculateDirectorySize(directory);
+    await auth.pool.query(`
+      UPDATE monitored_domains
+      SET project_directory = $1,
+          webspace_used_bytes = $2,
+          webspace_checked_at = NOW(),
+          webspace_check_status = 'healthy',
+          webspace_check_error = ''
+      WHERE domain = $3
+    `, [result.directory, result.bytes, item.domain]);
+    return { domain: item.domain, ...result, allocatedWebspace: Number(item.management?.allocatedWebspace), usedWebspace: result.bytes / (1024 ** 3), checkedAt: new Date().toISOString(), status: 'healthy' };
+  } catch (error) {
+    await auth.pool.query(`
+      UPDATE monitored_domains
+      SET webspace_checked_at = NOW(),
+          webspace_check_status = 'error',
+          webspace_check_error = $1
+      WHERE domain = $2
+    `, [String(error.message || 'Unable to calculate directory size').slice(0, 500), item.domain]);
+    return { domain: item.domain, status: 'error', error: error.message };
+  }
+}
+
+async function checkSavedWebspaces({ force = false, domains = null } = {}) {
+  if (webspaceCheckInProgress) return [];
+  webspaceCheckInProgress = true;
+  try {
+    await initializeDomainStorage();
+    const settings = await auth.getSettings();
+    const intervalMs = Math.max(1, Number(settings.webspaceCheckIntervalMinutes) || 60) * 60 * 1000;
+    const requested = Array.isArray(domains) ? new Set(domains.map((value) => normalizeDomain(value)).filter(Boolean)) : null;
+    const now = Date.now();
+    const saved = (await readMonitoredDomains()).filter((item) => item.management?.projectDirectory && (!requested || requested.has(item.domain)) && (force || !item.management.webspaceCheckedAt || now - new Date(item.management.webspaceCheckedAt).valueOf() >= intervalMs));
+    const results = [];
+    for (const item of saved) results.push(await checkDomainWebspace(item));
+    if (results.length) await recordAudit({ action: 'Webspace directory check', result: results.some((item) => item.status === 'error') ? 'error' : 'success', details: `Checked ${results.length} project director${results.length === 1 ? 'y' : 'ies'}` });
+    return results;
+  } finally {
+    webspaceCheckInProgress = false;
+  }
+}
+
 async function saveDomainResults(results) {
   const client = await auth.pool.connect();
   try {
@@ -430,9 +522,9 @@ async function saveDomainResults(results) {
       await client.query(`
         INSERT INTO monitored_domains (domain, added_at, scanned_at, status, status_message, dns, ssl, http, registration,
           client_company, maintenance_responsibility, registrar, dns_managed_by,
-          registration_date, expiry_date, auto_renewal, primary_contact, webspace_gb, webspace_start_date, ssl_enabled, ssl_enabled_date, notes, scan_enabled)
+          registration_date, expiry_date, auto_renewal, primary_contact, webspace_gb, webspace_start_date, project_directory, ssl_enabled, ssl_enabled_date, notes, scan_enabled)
         VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb,
-          $10, $11, $12, $13, $14::date, $15::date, $16, $17, $18, $19::date, $20, $21::date, $22, TRUE)
+          $10, $11, $12, $13, $14::date, $15::date, $16, $17, $18, $19::date, $20, $21, $22::date, $23, TRUE)
         ON CONFLICT (domain) DO UPDATE SET
           scanned_at = EXCLUDED.scanned_at,
           status = EXCLUDED.status,
@@ -451,6 +543,7 @@ async function saveDomainResults(results) {
           primary_contact = EXCLUDED.primary_contact,
           webspace_gb = EXCLUDED.webspace_gb,
           webspace_start_date = EXCLUDED.webspace_start_date,
+          project_directory = EXCLUDED.project_directory,
           ssl_enabled = EXCLUDED.ssl_enabled,
           ssl_enabled_date = EXCLUDED.ssl_enabled_date,
           notes = EXCLUDED.notes
@@ -473,8 +566,9 @@ async function saveDomainResults(results) {
         management.expiryDate,
         management.autoRenewal,
         management.primaryContact,
-        management.webspace,
+        management.allocatedWebspace,
         management.webspaceStartDate,
+        management.projectDirectory,
         management.sslEnabled,
         management.sslEnabledDate,
         management.notes
@@ -610,7 +704,7 @@ function getCertificate(hostname) {
 function probeHttps(hostname) {
   return new Promise((resolve) => {
     const started = Date.now();
-    const request = https.request({ hostname, port: 443, path: '/', method: 'HEAD', rejectUnauthorized: false, timeout: 8000, headers: { 'User-Agent': 'PM2 Domain Monitor/1.0' } }, (response) => {
+    const request = https.request({ hostname, port: 443, path: '/', method: 'HEAD', rejectUnauthorized: false, timeout: 8000, headers: { 'User-Agent': 'PM2 Website & Hosting/1.0' } }, (response) => {
       const headers = Object.fromEntries(Object.entries(response.headers).map(([key, value]) => [key, Array.isArray(value) ? value.join(', ') : value]));
       response.resume();
       resolve({ reachable: true, statusCode: response.statusCode, statusMessage: response.statusMessage, responseTime: Date.now() - started, headers });
@@ -821,34 +915,76 @@ function reportDate(value) {
   return date && !Number.isNaN(date.valueOf()) ? date.toLocaleString() : '—';
 }
 
-function reportReasons(item, settings) {
+function reportReasons(item, settings, reportType = 'all') {
   const reasons = [];
   const sslDays = Number.isFinite(Number(item.ssl?.daysRemaining)) ? Number(item.ssl.daysRemaining) : null;
   const domainDays = Number.isFinite(Number(item.registration?.daysRemaining)) ? Number(item.registration.daysRemaining) : null;
   const leadThreshold = Math.max(...reportLeadDays(settings), 1);
   const sslThreshold = Math.max(settingNumber(settings, 'sslWarningDays', 30), leadThreshold);
   const domainThreshold = Math.max(settingNumber(settings, 'domainWarningDays', 30), leadThreshold);
-  if (!item.ssl?.valid) reasons.push('SSL certificate check failed');
-  else if (sslDays !== null && sslDays <= sslThreshold) reasons.push(`SSL expires in ${sslDays} day${sslDays === 1 ? '' : 's'}`);
-  if (domainDays !== null && domainDays <= domainThreshold) reasons.push(`Domain expires in ${domainDays} day${domainDays === 1 ? '' : 's'}`);
+  if (reportType === 'all' || reportType === 'ssl') {
+    if (!item.ssl?.valid) reasons.push('SSL certificate check failed');
+    else if (sslDays !== null && sslDays <= sslThreshold) reasons.push(`SSL expires in ${sslDays} day${sslDays === 1 ? '' : 's'}`);
+  }
+  if (reportType === 'all' || reportType === 'domain') {
+    if (domainDays !== null && domainDays <= domainThreshold) reasons.push(`Domain expires in ${domainDays} day${domainDays === 1 ? '' : 's'}`);
+  }
   return reasons;
 }
 
-async function sendDomainReport(results, settings, { test = false } = {}) {
+async function sendDomainReport(results, settings, { test = false, reportType = 'all' } = {}) {
   if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) throw new Error('SMTP is not configured');
   const recipients = reportRecipients(settings);
   if (!recipients.length) throw new Error('No domain report recipient is configured');
   const transport = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 465), secure: process.env.SMTP_SECURE !== 'false', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000 });
+  const includeSsl = reportType === 'all' || reportType === 'ssl';
+  const includeDomain = reportType === 'all' || reportType === 'domain';
+  const reportLabel = test ? `${reportType === 'ssl' ? 'SSL' : reportType === 'domain' ? 'domain' : 'full'} test report` : reportType === 'ssl' ? 'SSL expiry alert' : reportType === 'domain' ? 'domain expiry alert' : 'expiry alert';
+  const metricHeaders = `${includeSsl ? '<th style="padding:12px;border-bottom:2px solid #cbd5e1">SSL days</th>' : ''}${includeDomain ? '<th style="padding:12px;border-bottom:2px solid #cbd5e1">Domain days</th>' : ''}`;
   const rows = results.map((item) => {
     const ips = [...(item.dns?.ipv4 || []), ...(item.dns?.ipv6 || [])].join(', ') || '—';
-    const reasons = test ? ['Full domain inventory'] : reportReasons(item, settings);
+    const reasons = test ? ['Full domain inventory'] : reportReasons(item, settings, reportType);
     const status = String(item.status || 'unknown').toLowerCase();
     const statusColor = status === 'critical' || status === 'error' ? '#b42318' : status === 'warning' ? '#b54708' : '#027a48';
-    return `<tr><td><strong>${escapeHtml(item.domain)}</strong></td><td>${escapeHtml(reportDate(item.scannedAt))}</td><td>${escapeHtml(ips)}</td><td><span style="color:${statusColor};font-weight:700;text-transform:capitalize">${escapeHtml(status)}</span></td><td><strong>${escapeHtml(item.ssl?.daysRemaining ?? '—')}</strong> days</td><td><strong>${escapeHtml(item.registration?.daysRemaining ?? '—')}</strong> days</td><td>${escapeHtml(reasons.join('; ') || '—')}</td></tr>`;
+    const metricCells = `${includeSsl ? `<td><strong>${escapeHtml(item.ssl?.daysRemaining ?? '—')}</strong> days</td>` : ''}${includeDomain ? `<td><strong>${escapeHtml(item.registration?.daysRemaining ?? '—')}</strong> days</td>` : ''}`;
+    return `<tr><td><strong>${escapeHtml(item.domain)}</strong></td><td>${escapeHtml(reportDate(item.scannedAt))}</td><td>${escapeHtml(ips)}</td><td><span style="color:${statusColor};font-weight:700;text-transform:capitalize">${escapeHtml(status)}</span></td>${metricCells}<td>${escapeHtml(reasons.join('; ') || '—')}</td></tr>`;
   }).join('');
-  const text = results.map((item) => `${item.domain} | ${item.status} | IP: ${[...(item.dns?.ipv4 || []), ...(item.dns?.ipv6 || [])].join(', ') || '—'} | SSL days: ${item.ssl?.daysRemaining ?? '—'} | Domain days: ${item.registration?.daysRemaining ?? '—'} | ${test ? 'Full domain inventory' : reportReasons(item, settings).join('; ')}`).join('\n');
+  const text = results.map((item) => `${item.domain} | ${item.status} | ${includeSsl ? `SSL days: ${item.ssl?.daysRemaining ?? '—'} | ` : ''}${includeDomain ? `Domain days: ${item.registration?.daysRemaining ?? '—'} | ` : ''}${test ? 'Full domain inventory' : reportReasons(item, settings, reportType).join('; ')}`).join('\n');
   try {
-    await transport.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: recipients, subject: `Mantis Monitor ${test ? 'test report' : 'expiry alert'} - ${results.length} domain${results.length === 1 ? '' : 's'}`, text, html: `<div style="background:#f4f7fb;padding:20px 12px;font-family:Arial,sans-serif;color:#172b4d"><div style="max-width:1100px;margin:0 auto;background:#fff;border:1px solid #dbe3ef;border-radius:10px;padding:20px"><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#eef3f8;text-align:left"><th style="padding:12px;border-bottom:2px solid #cbd5e1">Domain</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Last scan</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">IP address</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Status</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">SSL days</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Domain days</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Alert</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>` });
+    await transport.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: recipients, subject: `Mantis Monitor ${reportLabel} - ${results.length} domain${results.length === 1 ? '' : 's'}`, text, html: `<div style="background:#f4f7fb;padding:20px 12px;font-family:Arial,sans-serif;color:#172b4d"><div style="max-width:1100px;margin:0 auto;background:#fff;border:1px solid #dbe3ef;border-radius:10px;padding:20px"><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#eef3f8;text-align:left"><th style="padding:12px;border-bottom:2px solid #cbd5e1">Domain</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Last scan</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">IP address</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Status</th>${metricHeaders}<th style="padding:12px;border-bottom:2px solid #cbd5e1">Alert</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>` });
+  } finally {
+    transport.close();
+  }
+  return results.length;
+}
+
+function webspaceReportReasons(item, settings) {
+  const allocated = Number(item.allocatedWebspace);
+  const used = Number(item.usedWebspace);
+  if (!Number.isFinite(allocated) || allocated <= 0 || !Number.isFinite(used)) return [];
+  const percent = (used / allocated) * 100;
+  const warning = settingNumber(settings, 'webspaceWarningPercent', 80, 1, 1000);
+  const critical = Math.max(warning, settingNumber(settings, 'webspaceCriticalPercent', 95, 1, 1000));
+  if (percent >= critical) return [`Webspace usage is ${percent.toFixed(1)}% (${used.toFixed(2)} GB of ${allocated.toFixed(2)} GB)`];
+  if (percent >= warning) return [`Webspace usage is ${percent.toFixed(1)}% (${used.toFixed(2)} GB of ${allocated.toFixed(2)} GB)`];
+  return [];
+}
+
+async function sendWebspaceReport(results, settings, { test = false } = {}) {
+  if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) throw new Error('SMTP is not configured');
+  const recipients = reportRecipients(settings);
+  if (!recipients.length) throw new Error('No webspace report recipient is configured');
+  const transport = nodemailer.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 465), secure: process.env.SMTP_SECURE !== 'false', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }, connectionTimeout: 10000, greetingTimeout: 10000, socketTimeout: 15000 });
+  const rows = results.map((item) => {
+    const percent = (Number(item.usedWebspace) / Number(item.allocatedWebspace)) * 100;
+    const critical = percent >= Math.max(settingNumber(settings, 'webspaceWarningPercent', 80, 1, 1000), settingNumber(settings, 'webspaceCriticalPercent', 95, 1, 1000));
+    const color = critical ? '#b42318' : '#b54708';
+    const reasons = test ? ['Webspace usage inventory'] : webspaceReportReasons(item, settings);
+    return `<tr><td><strong>${escapeHtml(item.domain)}</strong></td><td>${escapeHtml(item.directory)}</td><td>${escapeHtml(reportDate(item.checkedAt))}</td><td>${Number(item.usedWebspace).toFixed(2)} GB</td><td>${Number(item.allocatedWebspace).toFixed(2)} GB</td><td><span style="color:${color};font-weight:700">${percent.toFixed(1)}%</span></td><td>${escapeHtml(reasons.join('; '))}</td></tr>`;
+  }).join('');
+  const text = results.map((item) => `${item.domain} | Used: ${Number(item.usedWebspace).toFixed(2)} GB | Allocated: ${Number(item.allocatedWebspace).toFixed(2)} GB | Usage: ${((Number(item.usedWebspace) / Number(item.allocatedWebspace)) * 100).toFixed(1)}% | ${test ? 'Webspace usage inventory' : webspaceReportReasons(item, settings).join('; ')}`).join('\n');
+  try {
+    await transport.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: recipients, subject: `Mantis Monitor webspace ${test ? 'test report' : 'alert'} - ${results.length} director${results.length === 1 ? 'y' : 'ies'}`, text, html: `<div style="background:#f4f7fb;padding:20px 12px;font-family:Arial,sans-serif;color:#172b4d"><div style="max-width:1200px;margin:0 auto;background:#fff;border:1px solid #dbe3ef;border-radius:10px;padding:20px"><h2>Webspace usage ${test ? 'test report' : 'alert'}</h2><div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="background:#eef3f8;text-align:left"><th style="padding:12px;border-bottom:2px solid #cbd5e1">Domain</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Project directory</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Checked at</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Used</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Allocated</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Usage</th><th style="padding:12px;border-bottom:2px solid #cbd5e1">Alert</th></tr></thead><tbody>${rows}</tbody></table></div></div></div>` });
   } finally {
     transport.close();
   }
@@ -859,8 +995,11 @@ async function sendTestEmail(settings) {
   await initializeDomainStorage();
   const domains = await readMonitoredDomains();
   if (!domains.length) throw new Error('No monitored domains are available for the test report');
-  const count = await sendDomainReport(domains, settings, { test: true });
-  return { count, recipients: reportRecipients(settings) };
+  await sendDomainReport(domains, settings, { test: true, reportType: 'ssl' });
+  await sendDomainReport(domains, settings, { test: true, reportType: 'domain' });
+  const webspaceDomains = domains.filter((item) => Number.isFinite(Number(item.management?.usedWebspace)) && Number.isFinite(Number(item.management?.allocatedWebspace)) && Number(item.management.allocatedWebspace) > 0).map((item) => ({ domain: item.domain, directory: item.management.projectDirectory, checkedAt: item.management.webspaceCheckedAt, allocatedWebspace: item.management.allocatedWebspace, usedWebspace: item.management.usedWebspace }));
+  if (webspaceDomains.length) await sendWebspaceReport(webspaceDomains, settings, { test: true });
+  return { count: domains.length, reports: webspaceDomains.length ? 3 : 2, recipients: reportRecipients(settings) };
 }
 
 async function domainSchedulerTick() {
@@ -875,13 +1014,17 @@ async function domainSchedulerTick() {
     domainSchedulerTick.lastRunKey = key;
     const results = await scanSavedDomains(settings);
     if (results?.length) {
-      const expiring = results.filter((item) => reportReasons(item, settings).length > 0);
-      if (expiring.length) {
-        await sendDomainReport(expiring, settings);
-        await recordAudit({ action: 'Email domain report', result: 'success', details: `Sent an expiry report for ${expiring.length} domain${expiring.length === 1 ? '' : 's'}` });
-      } else {
-        await recordAudit({ action: 'Email domain report', result: 'success', details: 'No domains are within the configured expiry alert thresholds' });
+      const sslExpiring = results.filter((item) => reportReasons(item, settings, 'ssl').length > 0);
+      const domainsExpiring = results.filter((item) => reportReasons(item, settings, 'domain').length > 0);
+      if (sslExpiring.length) {
+        await sendDomainReport(sslExpiring, settings, { reportType: 'ssl' });
+        await recordAudit({ action: 'Email SSL expiry report', result: 'success', details: `Sent an SSL expiry report for ${sslExpiring.length} domain${sslExpiring.length === 1 ? '' : 's'}` });
       }
+      if (domainsExpiring.length) {
+        await sendDomainReport(domainsExpiring, settings, { reportType: 'domain' });
+        await recordAudit({ action: 'Email domain expiry report', result: 'success', details: `Sent a domain expiry report for ${domainsExpiring.length} domain${domainsExpiring.length === 1 ? '' : 's'}` });
+      }
+      if (!sslExpiring.length && !domainsExpiring.length) await recordAudit({ action: 'Email expiry reports', result: 'success', details: 'No SSL certificates or domain registrations are within the configured alert thresholds' });
     }
   } catch (error) {
     console.error('Scheduled domain report failed:', error);
@@ -891,6 +1034,21 @@ async function domainSchedulerTick() {
   }
 }
 domainSchedulerTick.lastRunKey = '';
+
+async function webspaceSchedulerTick() {
+  try {
+    const settings = await auth.getSettings();
+    if (settings.webspaceScheduleEnabled === false) return;
+    const results = await checkSavedWebspaces();
+    const alerts = results.filter((item) => webspaceReportReasons(item, settings).length > 0);
+    if (alerts.length) {
+      await sendWebspaceReport(alerts, settings);
+      await recordAudit({ action: 'Email webspace report', result: 'success', details: `Sent a webspace alert for ${alerts.length} director${alerts.length === 1 ? 'y' : 'ies'}` });
+    }
+  } catch (error) {
+    console.error('Scheduled webspace check failed:', error);
+  }
+}
 
 function domainFiltersFromSearchParams(searchParams) {
   return {
@@ -910,7 +1068,7 @@ function csvCell(value) {
 }
 
 function monitoredDomainsCsv(domains) {
-  const headers = ['Domain', 'Client / Company', 'Maintenance Responsibility', 'Registrar', 'DNS Managed By', 'Auto-Renewal', 'Primary Contact', 'Webspace (GB)', 'Webspace Start Date', 'SSL Enabled', 'SSL Enabled Date', 'Registration Date', 'Expiry Date', 'SSL Days Remaining', 'Domain Days Remaining', 'IP Addresses', 'Health Status', 'Last Scanned', 'Notes'];
+  const headers = ['Domain', 'Client / Company', 'Maintenance Responsibility', 'Registrar', 'DNS Managed By', 'Auto-Renewal', 'Primary Contact', 'Allocated Webspace (GB)', 'Allocated Webspace Start Date', 'Project Directory', 'Used Webspace (GB)', 'Webspace Checked At', 'SSL Enabled', 'SSL Enabled Date', 'Registration Date', 'Expiry Date', 'SSL Days Remaining', 'Domain Days Remaining', 'IP Addresses', 'Health Status', 'Last Scanned', 'Notes'];
   const rows = domains.map((item) => [
     item.domain,
     item.management.clientCompany,
@@ -919,8 +1077,11 @@ function monitoredDomainsCsv(domains) {
     item.management.dnsManagedBy,
     item.management.autoRenewal ? 'Yes' : 'No',
     item.management.primaryContact,
-    item.management.webspace,
+    item.management.allocatedWebspace,
     item.management.webspaceStartDate,
+    item.management.projectDirectory,
+    item.management.usedWebspace,
+    item.management.webspaceCheckedAt,
     item.management.sslEnabled ? 'Yes' : 'No',
     item.management.sslEnabledDate,
     item.management.registrationDate,
@@ -951,7 +1112,8 @@ async function handleDomainApi(request, response, url) {
       later: count((item) => getDays(item) !== null && getDays(item) > 30),
       unknown: count((item) => getDays(item) === null)
     });
-    const webspaceValues = domains.map((item) => Number(item.management?.webspace)).filter((value) => Number.isFinite(value) && value >= 0);
+    const allocatedWebspaceValues = domains.map((item) => Number(item.management?.allocatedWebspace)).filter((value) => Number.isFinite(value) && value >= 0);
+    const usedWebspaceValues = domains.map((item) => Number(item.management?.usedWebspace)).filter((value) => Number.isFinite(value) && value >= 0);
     const dashboardDomain = (item) => ({
       domain: item.domain,
       status: item.status,
@@ -961,7 +1123,10 @@ async function handleDomainApi(request, response, url) {
       registration: { daysRemaining: item.registration?.daysRemaining },
       management: {
         clientCompany: item.management?.clientCompany,
-        webspace: item.management?.webspace,
+        allocatedWebspace: item.management?.allocatedWebspace,
+        usedWebspace: item.management?.usedWebspace,
+        webspaceCheckedAt: item.management?.webspaceCheckedAt,
+        webspaceCheckStatus: item.management?.webspaceCheckStatus,
         sslEnabled: item.management?.sslEnabled,
         autoRenewal: item.management?.autoRenewal
       }
@@ -986,8 +1151,10 @@ async function handleDomainApi(request, response, url) {
         sslExpired: count((item) => sslDays(item) !== null && sslDays(item) < 0),
         domainExpiring: count((item) => domainDays(item) !== null && domainDays(item) >= 0 && domainDays(item) <= 30),
         domainExpired: count((item) => domainDays(item) !== null && domainDays(item) < 0),
-        webspaceTracked: webspaceValues.length,
-        totalWebspace: webspaceValues.reduce((total, value) => total + value, 0),
+        allocatedWebspaceTracked: allocatedWebspaceValues.length,
+        totalAllocatedWebspace: allocatedWebspaceValues.reduce((total, value) => total + value, 0),
+        usedWebspaceTracked: usedWebspaceValues.length,
+        totalUsedWebspace: usedWebspaceValues.reduce((total, value) => total + value, 0),
         autoRenewal: count((item) => item.management?.autoRenewal === true),
         scansToday: count((item) => item.scannedAt && new Date(item.scannedAt).toDateString() === new Date().toDateString())
       },
@@ -1073,6 +1240,14 @@ async function handleDomainApi(request, response, url) {
     return true;
   }
 
+  if (request.method === 'POST' && url.pathname === '/api/domains/webspace/check') {
+    if (isRateLimited(request, 'webspace-check', 10, 5 * 60 * 1000)) { sendJson(response, 429, { error: 'Too many webspace checks. Try again later.' }); return true; }
+    const payload = await readJsonBody(request);
+    const results = await checkSavedWebspaces({ force: true, domains: payload.domains || null });
+    sendJson(response, 200, { results, domains: await readMonitoredDomains() });
+    return true;
+  }
+
   const encodedDomain = url.pathname.match(/^\/api\/domains\/([^/]+)$/)?.[1];
   if (encodedDomain && request.method === 'PATCH') {
     const domain = normalizeDomain(decodeURIComponent(encodedDomain));
@@ -1093,11 +1268,16 @@ async function handleDomainApi(request, response, url) {
             primary_contact = $6,
             webspace_gb = $7,
             webspace_start_date = $8::date,
-            ssl_enabled = $9,
-            ssl_enabled_date = $10::date,
-            notes = $11
-        WHERE domain = $12
-      `, [management.clientCompany, management.maintenanceResponsibility, management.registrar, management.dnsManagedBy, management.autoRenewal, management.primaryContact, management.webspace, management.webspaceStartDate, management.sslEnabled, management.sslEnabledDate, management.notes, domain]);
+            project_directory = $9,
+            webspace_used_bytes = CASE WHEN project_directory IS DISTINCT FROM $9 THEN NULL ELSE webspace_used_bytes END,
+            webspace_checked_at = CASE WHEN project_directory IS DISTINCT FROM $9 THEN NULL ELSE webspace_checked_at END,
+            webspace_check_status = CASE WHEN project_directory IS DISTINCT FROM $9 THEN 'unknown' ELSE webspace_check_status END,
+            webspace_check_error = CASE WHEN project_directory IS DISTINCT FROM $9 THEN '' ELSE webspace_check_error END,
+            ssl_enabled = $10,
+            ssl_enabled_date = $11::date,
+            notes = $12
+        WHERE domain = $13
+      `, [management.clientCompany, management.maintenanceResponsibility, management.registrar, management.dnsManagedBy, management.autoRenewal, management.primaryContact, management.allocatedWebspace, management.webspaceStartDate, management.projectDirectory, management.sslEnabled, management.sslEnabledDate, management.notes, domain]);
     }
     sendJson(response, 200, { domains: await readMonitoredDomains() });
     return true;
@@ -2026,8 +2206,8 @@ async function handle(request, response) {
       if (!auth.hasPermission(user, permission)) { sendJson(response, 403, { error: 'You do not have permission to manage settings' }); return; }
       if (request.method === 'POST' && url.pathname === '/api/settings/test-email') {
         const result = await sendTestEmail(await auth.getSettings());
-        await recordAudit({ userId: user.id, action: 'Send test email', result: 'success', details: `Sent all-domain SMTP test report for ${result.count} domain${result.count === 1 ? '' : 's'} to ${result.recipients.length} recipient${result.recipients.length === 1 ? '' : 's'}` });
-        sendJson(response, 200, { message: `Test report sent with ${result.count} domain${result.count === 1 ? '' : 's'}` });
+        await recordAudit({ userId: user.id, action: 'Send test email', result: 'success', details: `Sent ${result.reports} separate SMTP test reports for ${result.count} domain${result.count === 1 ? '' : 's'} to ${result.recipients.length} recipient${result.recipients.length === 1 ? '' : 's'}` });
+        sendJson(response, 200, { message: `${result.reports} separate test report${result.reports === 1 ? '' : 's'} sent for ${result.count} domain${result.count === 1 ? '' : 's'}` });
       } else if (request.method === 'GET') {
         sendJson(response, 200, { settings: await auth.getSettings() });
       } else if (request.method === 'PATCH') {
@@ -2119,7 +2299,11 @@ server.listen(PORT, HOST, () => {
   Promise.all([auth.initializeAuth(), initializeApplicationStorage(), initializeDomainStorage()]).then(() => {
     if (process.env.DOMAIN_SCAN_ENABLED !== 'false') {
       setInterval(domainSchedulerTick, 30 * 1000).unref();
-      console.log('Domain monitor scheduler enabled');
+      console.log('Website & Hosting scheduler enabled');
+    }
+    if (process.env.WEBSPACE_CHECK_ENABLED !== 'false') {
+      setInterval(webspaceSchedulerTick, 30 * 1000).unref();
+      console.log('Webspace monitor scheduler enabled');
     }
   }).catch((error) => {
     console.error('Manager startup failed:', error.message);

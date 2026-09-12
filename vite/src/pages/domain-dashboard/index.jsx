@@ -30,7 +30,7 @@ import { getDomainDashboard } from 'api/domains';
 import { useAuth } from 'contexts/AuthContext';
 
 const emptyData = {
-  summary: { total: 0, healthy: 0, attention: 0, errors: 0, sslEnabled: 0, sslExpiring: 0, sslExpired: 0, domainExpiring: 0, domainExpired: 0, webspaceTracked: 0, totalWebspace: 0, autoRenewal: 0, scansToday: 0 },
+  summary: { total: 0, healthy: 0, attention: 0, errors: 0, sslEnabled: 0, sslExpiring: 0, sslExpired: 0, domainExpiring: 0, domainExpired: 0, allocatedWebspaceTracked: 0, totalAllocatedWebspace: 0, usedWebspaceTracked: 0, totalUsedWebspace: 0, autoRenewal: 0, scansToday: 0 },
   domains: { atRisk: [], recent: [] },
   expiry: {
     ssl: { expired: 0, seven: 0, thirty: 0, later: 0, unknown: 0 },
@@ -143,23 +143,23 @@ export default function DomainDashboardPage() {
     { id: 'warning', value: summary.attention, label: 'Attention', color: theme.vars.palette.warning.main },
     { id: 'errors', value: summary.errors, label: 'Errors', color: theme.vars.palette.error.main }
   ], [summary, theme]);
-  const webspacePercent = summary.total ? Math.round((summary.webspaceTracked / summary.total) * 100) : 0;
+  const webspacePercent = summary.total ? Math.round((summary.usedWebspaceTracked / summary.total) * 100) : 0;
   const sslPercent = summary.total ? Math.round((summary.sslEnabled / summary.total) * 100) : 0;
   const autoRenewalPercent = summary.total ? Math.round((summary.autoRenewal / summary.total) * 100) : 0;
   const hasDomains = summary.total > 0;
 
-  if (!hasPermission('domain-dashboard.view')) return <Alert severity="error">You do not have permission to view the domain dashboard.</Alert>;
+  if (!hasPermission('domain-dashboard.view')) return <Alert severity="error">You do not have permission to view the Website &amp; Hosting Dashboard.</Alert>;
 
   return (
     <Grid container rowSpacing={3} columnSpacing={2.75}>
       <Grid size={12}>
         <Stack direction={{ xs: 'column', md: 'row' }} sx={{ alignItems: { md: 'center' }, justifyContent: 'space-between', gap: 1 }}>
           <Box>
-            <Typography variant="h5">Domain Dashboard</Typography>
+            <Typography variant="h5">Website &amp; Hosting Dashboard</Typography>
             <Typography variant="body2" color="text.secondary">A quick scan of domain health, expiry risk, hosting, and SSL coverage.</Typography>
           </Box>
           <Stack direction="row" spacing={1}>
-            {hasPermission('domains.view') && <Button variant="outlined" onClick={() => navigate('/domains')}>Open Domain Monitor</Button>}
+            {hasPermission('domains.view') && <Button variant="outlined" onClick={() => navigate('/domains')}>Open Website &amp; Hosting</Button>}
             <Button variant="outlined" startIcon={refreshing ? <CircularProgress size={16} /> : <ReloadOutlined />} onClick={() => loadDashboard(true)} disabled={loading || refreshing}>Refresh</Button>
           </Stack>
         </Stack>
@@ -204,10 +204,11 @@ export default function DomainDashboardPage() {
         <MainCard title="Coverage snapshot">
           <Stack spacing={2}>
             <Box><Stack direction="row" sx={{ justifyContent: 'space-between' }}><Typography variant="body2">SSL configured</Typography><Typography variant="body2" fontWeight={600}>{summary.sslEnabled}/{summary.total}</Typography></Stack><LinearProgress variant="determinate" value={sslPercent} color="success" sx={{ mt: 0.75 }} /></Box>
-            <Box><Stack direction="row" sx={{ justifyContent: 'space-between' }}><Typography variant="body2">Webspace tracked</Typography><Typography variant="body2" fontWeight={600}>{summary.webspaceTracked}/{summary.total}</Typography></Stack><LinearProgress variant="determinate" value={webspacePercent} sx={{ mt: 0.75 }} /></Box>
+            <Box><Stack direction="row" sx={{ justifyContent: 'space-between' }}><Typography variant="body2">Used webspace tracked</Typography><Typography variant="body2" fontWeight={600}>{summary.usedWebspaceTracked}/{summary.total}</Typography></Stack><LinearProgress variant="determinate" value={webspacePercent} sx={{ mt: 0.75 }} /></Box>
             <Box><Stack direction="row" sx={{ justifyContent: 'space-between' }}><Typography variant="body2">Auto-renewal enabled</Typography><Typography variant="body2" fontWeight={600}>{summary.autoRenewal}/{summary.total}</Typography></Stack><LinearProgress variant="determinate" value={autoRenewalPercent} color="warning" sx={{ mt: 0.75 }} /></Box>
             <Divider />
-            <Stack direction="row" sx={{ justifyContent: 'space-between' }}><Typography variant="body2" color="text.secondary">Total webspace</Typography><Typography variant="body2" fontWeight={600}>{summary.totalWebspace.toLocaleString()} GB</Typography></Stack>
+            <Stack direction="row" sx={{ justifyContent: 'space-between' }}><Typography variant="body2" color="text.secondary">Allocated webspace</Typography><Typography variant="body2" fontWeight={600}>{summary.totalAllocatedWebspace.toLocaleString()} GB</Typography></Stack>
+            <Stack direction="row" sx={{ justifyContent: 'space-between' }}><Typography variant="body2" color="text.secondary">Used webspace</Typography><Typography variant="body2" fontWeight={600}>{summary.totalUsedWebspace.toFixed(2)} GB</Typography></Stack>
           </Stack>
         </MainCard>
       </Grid>
@@ -220,17 +221,17 @@ export default function DomainDashboardPage() {
         <MainCard title="Recent domain checks" content={false}>
           <TableContainer>
             <Table size="small">
-              <TableHead><TableRow><TableCell>Domain</TableCell><TableCell>Last checked</TableCell><TableCell>Status</TableCell><TableCell>Webspace</TableCell><TableCell>SSL</TableCell></TableRow></TableHead>
+              <TableHead><TableRow><TableCell>Domain</TableCell><TableCell>Last checked</TableCell><TableCell>Status</TableCell><TableCell>Allocated / used webspace</TableCell><TableCell>SSL</TableCell></TableRow></TableHead>
               <TableBody>
                 {!domains.recent.length && <TableRow><TableCell colSpan={5}><Typography color="text.secondary" sx={{ py: 2 }}>No domain checks available.</Typography></TableCell></TableRow>}
-                {domains.recent.map((item) => <TableRow key={item.domain} hover><TableCell><Typography variant="subtitle2">{item.domain}</Typography></TableCell><TableCell>{formatDate(item.scannedAt)}</TableCell><TableCell><Chip size="small" variant="combined" color={statusColor(item.status)} label={item.status || 'unknown'} /></TableCell><TableCell>{item.management?.webspace === null || item.management?.webspace === undefined ? 'Not tracked' : `${item.management.webspace} GB`}</TableCell><TableCell><ExpiryValue value={item.ssl?.daysRemaining} /></TableCell></TableRow>)}
+                {domains.recent.map((item) => <TableRow key={item.domain} hover><TableCell><Typography variant="subtitle2">{item.domain}</Typography></TableCell><TableCell>{formatDate(item.scannedAt)}</TableCell><TableCell><Chip size="small" variant="combined" color={statusColor(item.status)} label={item.status || 'unknown'} /></TableCell><TableCell>{item.management?.allocatedWebspace === null || item.management?.allocatedWebspace === undefined ? 'Not allocated' : <Stack><Typography variant="body2">Allocated: {item.management.allocatedWebspace} GB</Typography><Typography variant="caption" color="text.secondary">Used: {item.management.usedWebspace === null || item.management.usedWebspace === undefined ? 'Not checked' : `${Number(item.management.usedWebspace).toFixed(2)} GB`}</Typography></Stack>}</TableCell><TableCell><ExpiryValue value={item.ssl?.daysRemaining} /></TableCell></TableRow>)}
               </TableBody>
             </Table>
           </TableContainer>
         </MainCard>
       </Grid>
       {loading && <Grid size={12}><Stack sx={{ alignItems: 'center' }}><CircularProgress /></Stack></Grid>}
-      <Grid size={12}><Stack direction="row" sx={{ alignItems: 'center', gap: 1 }}><BarChartOutlined style={{ color: theme.vars.palette.text.secondary }} /><Typography variant="caption" color="text.secondary">Dashboard data is read-only. Use Domain Monitor to add domains, edit hosting details, or run scans.</Typography></Stack></Grid>
+      <Grid size={12}><Stack direction="row" sx={{ alignItems: 'center', gap: 1 }}><BarChartOutlined style={{ color: theme.vars.palette.text.secondary }} /><Typography variant="caption" color="text.secondary">Dashboard data is read-only. Use Website &amp; Hosting to add domains, edit hosting details, or run checks.</Typography></Stack></Grid>
     </Grid>
   );
 }

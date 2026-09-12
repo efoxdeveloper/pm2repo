@@ -3,7 +3,7 @@ const API_ROOT = '/api/domains';
 async function request(path = '', options) {
   const response = await fetch(`${API_ROOT}${path}`, { headers: { 'Content-Type': 'application/json' }, ...options });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.error || 'Unable to reach the domain monitor API');
+  if (!response.ok) throw new Error(payload.error || 'Unable to reach the Website & Hosting API');
   return payload;
 }
 
@@ -39,6 +39,10 @@ export async function exportDomains(params = {}) {
 
 export async function scanDomains(domains, management) {
   return request('/scan', { method: 'POST', body: JSON.stringify({ domains, management }) });
+}
+
+export async function checkWebspace(domains) {
+  return request('/webspace/check', { method: 'POST', body: JSON.stringify(domains ? { domains } : {}) });
 }
 
 export async function importDomains(rows) {

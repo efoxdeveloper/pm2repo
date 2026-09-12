@@ -44,7 +44,7 @@ const dashboard = {
     },
     {
       id: 'domain-dashboard',
-      title: 'Domain Dashboard',
+      title: 'Website & Hosting Dashboard',
       type: 'item',
       url: '/domain-dashboard',
       icon: icons.BarChartOutlined,
@@ -53,7 +53,7 @@ const dashboard = {
     },
     {
       id: 'domains',
-      title: 'Domain Monitor',
+      title: 'Website & Hosting',
       type: 'item',
       url: '/domains',
       icon: icons.GlobalOutlined,

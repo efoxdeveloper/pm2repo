@@ -33,8 +33,8 @@ const importFields = [
   { key: 'dnsManagedBy', label: 'DNS managed by', aliases: ['dns', 'dns managed by', 'dns provider'] },
   { key: 'autoRenewal', label: 'Auto-renewal', aliases: ['auto renewal', 'auto-renewal', 'autorenew', 'renewal'] },
   { key: 'primaryContact', label: 'Primary contact', aliases: ['contact', 'primary contact', 'owner', 'domain owner'] },
-  { key: 'webspace', label: 'Webspace (GB)', aliases: ['webspace', 'webspace gb', 'hosting gb', 'disk space'] },
-  { key: 'webspaceStartDate', label: 'Webspace start date', aliases: ['webspace start date', 'webspace since', 'hosting start date', 'hosting date'] },
+  { key: 'webspace', label: 'Allocated webspace (GB)', aliases: ['allocated webspace', 'allocated webspace gb', 'webspace', 'webspace gb', 'hosting gb', 'disk space'] },
+  { key: 'webspaceStartDate', label: 'Allocated webspace start date', aliases: ['allocated webspace start date', 'webspace start date', 'webspace since', 'hosting start date', 'hosting date'] },
   { key: 'sslEnabled', label: 'SSL enabled', aliases: ['ssl', 'ssl enabled', 'https enabled', 'certificate enabled'] },
   { key: 'sslEnabledDate', label: 'SSL enabled date', aliases: ['ssl enabled date', 'ssl date', 'https date', 'certificate date'] },
   { key: 'notes', label: 'Notes', aliases: ['notes', 'note', 'comments', 'remarks'] }
@@ -305,7 +305,7 @@ export default function DomainImportDialog({ open, onClose, onImported }) {
             <Alert severity="info">{validRows.length} valid row{validRows.length === 1 ? '' : 's'} ready to import. Invalid rows remain visible below and will be skipped.</Alert>
             <TableContainer sx={{ maxHeight: 330, border: 1, borderColor: 'divider', borderRadius: 1 }}>
               <Table size="small" stickyHeader>
-                <TableHead><TableRow><TableCell>CSV row</TableCell><TableCell>Domain</TableCell><TableCell>Webspace</TableCell><TableCell>Webspace date</TableCell><TableCell>SSL date</TableCell><TableCell>Validation</TableCell></TableRow></TableHead>
+              <TableHead><TableRow><TableCell>CSV row</TableCell><TableCell>Domain</TableCell><TableCell>Allocated webspace</TableCell><TableCell>Allocated webspace date</TableCell><TableCell>SSL date</TableCell><TableCell>Validation</TableCell></TableRow></TableHead>
                 <TableBody>
                   {previews.map((row) => <TableRow key={row.rowNumber}><TableCell>{row.rowNumber}</TableCell><TableCell>{row.domain || '—'}</TableCell><TableCell>{row.values.webspace === null ? '—' : `${row.values.webspace} GB`}</TableCell><TableCell>{row.values.webspaceStartDate || '—'}</TableCell><TableCell>{row.values.sslEnabledDate || '—'}</TableCell><TableCell>{row.errors.length ? <Chip size="small" color="error" label={row.errors.join(', ')} /> : <Chip size="small" color="success" label="Ready" />}</TableCell></TableRow>)}
                 </TableBody>

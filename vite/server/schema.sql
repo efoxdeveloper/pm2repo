@@ -109,14 +109,26 @@ CREATE TABLE IF NOT EXISTS monitored_domains (
   ssl JSONB NOT NULL DEFAULT '{}'::jsonb,
   http JSONB NOT NULL DEFAULT '{}'::jsonb,
   registration JSONB NOT NULL DEFAULT '{}'::jsonb,
+  webspace_gb NUMERIC(12, 2),
   webspace_start_date DATE,
+  project_directory TEXT,
+  webspace_used_bytes BIGINT,
+  webspace_checked_at TIMESTAMPTZ,
+  webspace_check_status VARCHAR(20) NOT NULL DEFAULT 'unknown',
+  webspace_check_error TEXT NOT NULL DEFAULT '',
   ssl_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   ssl_enabled_date DATE,
   scan_enabled BOOLEAN NOT NULL DEFAULT TRUE
 );
 
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS registration JSONB NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_gb NUMERIC(12, 2);
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_start_date DATE;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS project_directory TEXT;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_used_bytes BIGINT;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_checked_at TIMESTAMPTZ;
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_check_status VARCHAR(20) NOT NULL DEFAULT 'unknown';
+ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS webspace_check_error TEXT NOT NULL DEFAULT '';
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS ssl_enabled BOOLEAN NOT NULL DEFAULT FALSE;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS ssl_enabled_date DATE;
 ALTER TABLE monitored_domains ADD COLUMN IF NOT EXISTS scan_enabled BOOLEAN NOT NULL DEFAULT TRUE;

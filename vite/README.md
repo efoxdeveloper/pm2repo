@@ -188,7 +188,7 @@ Please generate a [Github issue](https://github.com/codedthemes/mantis-free-reac
 - [LinkedIn](https://www.linkedin.com/company/codedthemes/) 💼
 - [Instagram](https://www.instagram.com/codedthemes/) 📷
 - [Facebook](https://www.facebook.com/codedthemes) 🟦
-# PM2 Manager and Domain Monitor
+# PM2 Manager and Website & Hosting
 
 The active application is the Vite project in this directory. It uses PostgreSQL for authentication, roles, application assignments, monitored domains, settings, and audit activity. The sibling `next` directory is a separate template and is not used by this application.
 

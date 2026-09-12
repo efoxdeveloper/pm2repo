@@ -173,6 +173,10 @@ async function initializeAuth() {
           ('domainScheduleMonthDays', '[1]'::jsonb),
           ('domainReportLeadDays', '[30,14,7,1]'::jsonb),
           ('domainReportRecipients', '""'::jsonb),
+          ('webspaceScheduleEnabled', 'true'::jsonb),
+          ('webspaceCheckIntervalMinutes', '60'::jsonb),
+          ('webspaceWarningPercent', '80'::jsonb),
+          ('webspaceCriticalPercent', '95'::jsonb),
           ('applicationDefaultNamespace', '"default"'::jsonb),
           ('applicationDefaultMode', '"fork"'::jsonb),
           ('applicationDefaultInstances', '1'::jsonb),
@@ -446,7 +450,7 @@ async function getSettings() {
 
 async function updateSettings(settings, userId) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)) throw new Error('Settings must be an object');
-  const allowed = new Set(['panelName', 'refreshInterval', 'defaultLogLines', 'autoRefreshProcesses', 'domainScanEnabled', 'domainScanIntervalMinutes', 'sslWarningDays', 'sslCriticalDays', 'domainWarningDays', 'domainCriticalDays', 'domainScheduleEnabled', 'domainScheduleFrequency', 'domainScheduleTime', 'domainScheduleWeekdays', 'domainScheduleMonthDays', 'domainReportLeadDays', 'domainReportRecipients', 'applicationDefaultNamespace', 'applicationDefaultMode', 'applicationDefaultInstances', 'applicationDefaultAutorestart', 'applicationDefaultWatch']);
+  const allowed = new Set(['panelName', 'refreshInterval', 'defaultLogLines', 'autoRefreshProcesses', 'domainScanEnabled', 'domainScanIntervalMinutes', 'sslWarningDays', 'sslCriticalDays', 'domainWarningDays', 'domainCriticalDays', 'domainScheduleEnabled', 'domainScheduleFrequency', 'domainScheduleTime', 'domainScheduleWeekdays', 'domainScheduleMonthDays', 'domainReportLeadDays', 'domainReportRecipients', 'webspaceScheduleEnabled', 'webspaceCheckIntervalMinutes', 'webspaceWarningPercent', 'webspaceCriticalPercent', 'applicationDefaultNamespace', 'applicationDefaultMode', 'applicationDefaultInstances', 'applicationDefaultAutorestart', 'applicationDefaultWatch']);
   const normalized = {};
   for (const [key, value] of Object.entries(settings)) {
     if (!allowed.has(key)) continue;
@@ -454,8 +458,9 @@ async function updateSettings(settings, userId) {
     if (key === 'refreshInterval') normalized[key] = Math.min(300, Math.max(5, Number(value) || 10));
     if (key === 'defaultLogLines') normalized[key] = Math.min(5000, Math.max(1, Number(value) || 500));
     if (key === 'autoRefreshProcesses') normalized[key] = value === true || value === 'true';
-    if (['domainScanIntervalMinutes', 'sslWarningDays', 'sslCriticalDays', 'domainWarningDays', 'domainCriticalDays', 'applicationDefaultInstances'].includes(key)) normalized[key] = Math.min(5000, Math.max(1, Number(value) || 1));
-    if (key === 'domainScanEnabled' || key === 'applicationDefaultAutorestart' || key === 'applicationDefaultWatch') normalized[key] = value === true || value === 'true';
+    if (['domainScanIntervalMinutes', 'webspaceCheckIntervalMinutes', 'sslWarningDays', 'sslCriticalDays', 'domainWarningDays', 'domainCriticalDays', 'applicationDefaultInstances'].includes(key)) normalized[key] = Math.min(5000, Math.max(1, Number(value) || 1));
+    if (['webspaceWarningPercent', 'webspaceCriticalPercent'].includes(key)) normalized[key] = Math.min(1000, Math.max(1, Number(value) || 1));
+    if (key === 'domainScanEnabled' || key === 'webspaceScheduleEnabled' || key === 'applicationDefaultAutorestart' || key === 'applicationDefaultWatch') normalized[key] = value === true || value === 'true';
     if (key === 'applicationDefaultNamespace') normalized[key] = String(value || '').trim().replace(/[^A-Za-z0-9_.-]/g, '').slice(0, 80) || 'default';
     if (key === 'applicationDefaultMode') normalized[key] = value === 'cluster' ? 'cluster' : 'fork';
     if (key === 'domainScheduleEnabled') normalized[key] = value === true || value === 'true';
