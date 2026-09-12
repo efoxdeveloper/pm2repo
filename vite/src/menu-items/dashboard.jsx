@@ -51,9 +51,9 @@ const dashboard = {
       permissionAny: ['domain-dashboard.view', 'domains.view'],
       children: [
         { id: 'domain-dashboard', title: 'Overview', type: 'item', url: '/domain-dashboard', icon: icons.BarChartOutlined, permission: 'domain-dashboard.view', breadcrumbs: false },
-        { id: 'domains', title: 'Domains', type: 'item', url: '/domains', icon: icons.GlobalOutlined, permission: 'domains.view' },
-        { id: 'ssl-certificates', title: 'SSL Certificates', type: 'item', url: '/ssl', icon: icons.GlobalOutlined, permission: 'domains.view' },
-        { id: 'webspace', title: 'Webspace', type: 'item', url: '/webspace', icon: icons.HddOutlined, permission: 'domains.view' }
+        { id: 'domains', title: 'Domains', type: 'item', url: '/domains', icon: icons.GlobalOutlined, permission: 'domains.view', breadcrumbs: false },
+        { id: 'ssl-certificates', title: 'SSL Certificates', type: 'item', url: '/ssl', icon: icons.GlobalOutlined, permission: 'domains.view', breadcrumbs: false },
+        { id: 'webspace', title: 'Webspace', type: 'item', url: '/webspace', icon: icons.HddOutlined, permission: 'domains.view', breadcrumbs: false }
       ]
     },
     {
